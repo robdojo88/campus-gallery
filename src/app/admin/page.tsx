@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/ui/page-header';
 
 const cards = [
     { href: '/admin/users', label: 'Users', detail: 'Manage users, roles, and suspensions' },
+    { href: '/admin/events', label: 'Events', detail: 'Create event folders for camera tagging dropdowns' },
     { href: '/admin/uploads', label: 'Uploads', detail: 'Moderate posts and visitor submissions' },
     { href: '/admin/incognito', label: 'Incognito', detail: 'Review anonymous posts and identities' },
     { href: '/admin/reports', label: 'Reports', detail: 'Handle flagged content and abuse reports' },

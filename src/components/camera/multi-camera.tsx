@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
 import { addPendingCapture } from '@/lib/offline-queue';
-import { getCurrentUserProfile, uploadBatchCaptures } from '@/lib/supabase';
+import { fetchEventOptions, getCurrentUserProfile, uploadBatchCaptures } from '@/lib/supabase';
 import type { Visibility } from '@/lib/types';
 
 export function MultiCameraCapture() {
@@ -17,6 +17,8 @@ export function MultiCameraCapture() {
     const [captures, setCaptures] = useState<string[]>([]);
     const [caption, setCaption] = useState('');
     const [eventId, setEventId] = useState('');
+    const [eventOptions, setEventOptions] = useState<Array<{ id: string; name: string }>>([]);
+    const [eventsLoading, setEventsLoading] = useState(true);
     const [visibility, setVisibility] = useState<Visibility>('campus');
     const [status, setStatus] = useState('');
     const [isCapturing, setIsCapturing] = useState(false);
@@ -34,6 +36,26 @@ export function MultiCameraCapture() {
                 if (!mounted) return;
                 setVisibility('campus');
             });
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        let mounted = true;
+        async function loadEvents() {
+            try {
+                const events = await fetchEventOptions();
+                if (!mounted) return;
+                setEventOptions(events);
+            } catch {
+                if (!mounted) return;
+                setEventOptions([]);
+            } finally {
+                if (mounted) setEventsLoading(false);
+            }
+        }
+        void loadEvents();
         return () => {
             mounted = false;
         };
@@ -192,13 +214,22 @@ export function MultiCameraCapture() {
                     placeholder='Optional caption for all captures'
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
-                <input
+                <select
                     value={eventId}
                     onChange={(event) => setEventId(event.target.value)}
-                    disabled={uploading}
-                    placeholder='Optional event id'
+                    disabled={uploading || eventsLoading}
                     className='w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
-                />
+                >
+                    <option value=''>
+                        {eventsLoading ? 'Loading events...' : 'No specific event'}
+                    </option>
+                    {eventOptions.map((eventOption) => (
+                        <option key={eventOption.id} value={eventOption.id}>
+                            {eventOption.name}
+                        </option>
+                    ))}
+                </select>
+                <p className='text-xs text-slate-500'>Assign an event so this post appears in Event folders and Date folder tags.</p>
                 <p className='text-xs text-slate-500'>
                     Visibility: <span className='font-semibold capitalize'>{visibility}</span>
                 </p>

@@ -8,7 +8,9 @@ import { PageHeader } from '@/components/ui/page-header';
 import { fetchDateFolderCounts } from '@/lib/supabase';
 
 export default function DateGalleryPage() {
-    const [grouped, setGrouped] = useState<Array<{ date: string; count: number; label: string }>>([]);
+    const [grouped, setGrouped] = useState<
+        Array<{ date: string; count: number; label: string; dominantEventName?: string; dominantEventCount?: number }>
+    >([]);
     const [status, setStatus] = useState('Loading folders...');
 
     useEffect(() => {
@@ -45,6 +47,16 @@ export default function DateGalleryPage() {
                                     <div>
                                         <p className='text-xs font-semibold uppercase tracking-wide text-slate-500'>Date</p>
                                         <p className='mt-1 font-medium text-slate-800'>{item.label}</p>
+                                        {item.dominantEventName ? (
+                                            <p className='mt-2 inline-flex items-center rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-semibold text-cyan-800'>
+                                                Dominant Tag: {item.dominantEventName}
+                                                {item.dominantEventCount ? ` (${item.dominantEventCount})` : ''}
+                                            </p>
+                                        ) : (
+                                            <p className='mt-2 inline-flex items-center rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700'>
+                                                Dominant Tag: None
+                                            </p>
+                                        )}
                                     </div>
                                     <span className='rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white'>
                                         {item.count} uploads

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
 import { addPendingCapture } from '@/lib/offline-queue';
-import { getCurrentUserProfile, uploadBatchCaptures, uploadCapturedImage } from '@/lib/supabase';
+import { fetchEventOptions, getCurrentUserProfile, uploadBatchCaptures, uploadCapturedImage } from '@/lib/supabase';
 import type { UserRole, Visibility } from '@/lib/types';
 
 export function SingleCameraCapture() {
@@ -18,6 +18,8 @@ export function SingleCameraCapture() {
     const [activePreviewIndex, setActivePreviewIndex] = useState(0);
     const [caption, setCaption] = useState('');
     const [eventId, setEventId] = useState('');
+    const [eventOptions, setEventOptions] = useState<Array<{ id: string; name: string }>>([]);
+    const [eventsLoading, setEventsLoading] = useState(true);
     const [visibility, setVisibility] = useState<Visibility>('campus');
     const [role, setRole] = useState<UserRole | null>(null);
     const [online, setOnline] = useState(true);
@@ -51,6 +53,26 @@ export function SingleCameraCapture() {
                 if (!mounted) return;
                 setRole(null);
             });
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        let mounted = true;
+        async function loadEvents() {
+            try {
+                const events = await fetchEventOptions();
+                if (!mounted) return;
+                setEventOptions(events);
+            } catch {
+                if (!mounted) return;
+                setEventOptions([]);
+            } finally {
+                if (mounted) setEventsLoading(false);
+            }
+        }
+        void loadEvents();
         return () => {
             mounted = false;
         };
@@ -291,14 +313,23 @@ export function SingleCameraCapture() {
                             </option>
                         ))}
                     </select>
-                    <input
+                    <select
                         value={eventId}
                         onChange={(event) => setEventId(event.target.value)}
-                        disabled={isSubmitting}
-                        placeholder='Optional event id'
+                        disabled={isSubmitting || eventsLoading}
                         className='rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
-                    />
+                    >
+                        <option value=''>
+                            {eventsLoading ? 'Loading events...' : 'No specific event'}
+                        </option>
+                        {eventOptions.map((eventOption) => (
+                            <option key={eventOption.id} value={eventOption.id}>
+                                {eventOption.name}
+                            </option>
+                        ))}
+                    </select>
                 </div>
+                <p className='text-xs text-slate-500'>Assign an event so this post appears in Event folders and Date folder tags.</p>
                 <button
                     type='button'
                     onClick={() => void submitCapture()}

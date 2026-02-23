@@ -3,7 +3,13 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { getCurrentUserProfile, getSessionUser, signOutUser } from '@/lib/supabase';
+import {
+    countUnreadNotifications,
+    getCurrentUserProfile,
+    getSessionUser,
+    signOutUser,
+    subscribeToNotifications,
+} from '@/lib/supabase';
 import type { UserRole } from '@/lib/types';
 
 const links = [
@@ -16,6 +22,7 @@ const links = [
     { href: '/incognito', label: 'Incognito' },
     { href: '/visitor-gallery', label: 'Visitor' },
     { href: '/reviews', label: 'Reviews' },
+    { href: '/notifications', label: 'Notifications' },
     { href: '/admin', label: 'Admin' },
 ];
 
@@ -24,6 +31,7 @@ export function MainNav() {
     const router = useRouter();
     const [role, setRole] = useState<UserRole | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
+    const [unreadCount, setUnreadCount] = useState(0);
 
     useEffect(() => {
         let mounted = true;
@@ -34,15 +42,18 @@ export function MainNav() {
                 setUserId(user?.id ?? null);
                 if (!user) {
                     setRole(null);
+                    setUnreadCount(0);
                     return;
                 }
-                const profile = await getCurrentUserProfile();
+                const [profile, unread] = await Promise.all([getCurrentUserProfile(), countUnreadNotifications()]);
                 if (!mounted) return;
                 setRole(profile?.role ?? null);
+                setUnreadCount(unread);
             } catch {
                 if (!mounted) return;
                 setRole(null);
                 setUserId(null);
+                setUnreadCount(0);
             }
         }
         void load();
@@ -51,10 +62,44 @@ export function MainNav() {
         };
     }, []);
 
+    useEffect(() => {
+        if (!userId) {
+            return;
+        }
+
+        let mounted = true;
+        async function refreshUnread() {
+            try {
+                const unread = await countUnreadNotifications();
+                if (!mounted) return;
+                setUnreadCount(unread);
+            } catch {
+                if (!mounted) return;
+                setUnreadCount(0);
+            }
+        }
+
+        void refreshUnread();
+        const unsubscribe = subscribeToNotifications(() => {
+            void refreshUnread();
+        });
+        const pollingTimer = window.setInterval(() => {
+            void refreshUnread();
+        }, 5000);
+
+        return () => {
+            mounted = false;
+            unsubscribe();
+            window.clearInterval(pollingTimer);
+        };
+    }, [userId]);
+
     const visibleLinks = useMemo(() => {
         if (!role) return links.filter((link) => ['/feed', '/camera', '/camera/multi', '/reviews'].includes(link.href));
         if (role === 'visitor') {
-            return links.filter((link) => ['/camera', '/camera/multi', '/visitor-gallery', '/reviews'].includes(link.href));
+            return links.filter((link) =>
+                ['/camera', '/camera/multi', '/visitor-gallery', '/reviews', '/notifications'].includes(link.href),
+            );
         }
         if (role === 'member') {
             return links.filter((link) => link.href !== '/admin');
@@ -64,6 +109,9 @@ export function MainNav() {
 
     async function onLogout() {
         await signOutUser();
+        setUnreadCount(0);
+        setUserId(null);
+        setRole(null);
         router.push('/login');
         router.refresh();
     }
@@ -87,7 +135,14 @@ export function MainNav() {
                                         : 'text-slate-700 hover:bg-slate-100'
                                 }`}
                             >
-                                {link.label}
+                                <span className='inline-flex items-center gap-2'>
+                                    {link.label}
+                                    {link.href === '/notifications' && unreadCount > 0 ? (
+                                        <span className='rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white'>
+                                            {unreadCount > 99 ? '99+' : unreadCount}
+                                        </span>
+                                    ) : null}
+                                </span>
                             </Link>
                         );
                     })}
@@ -130,7 +185,14 @@ export function MainNav() {
                                 active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'
                             }`}
                         >
-                            {link.label}
+                            <span className='inline-flex items-center gap-1'>
+                                {link.label}
+                                {link.href === '/notifications' && unreadCount > 0 ? (
+                                    <span className='rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white'>
+                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                    </span>
+                                ) : null}
+                            </span>
                         </Link>
                     );
                 })}
