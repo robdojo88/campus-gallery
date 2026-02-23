@@ -9,15 +9,15 @@ interface PageHeaderProps {
 
 export function PageHeader({ eyebrow, title, description, action }: PageHeaderProps) {
     return (
-        <section className='mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:mb-8 md:p-8'>
+        <section className='mb-5 rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm md:mb-6 md:px-7 md:py-6'>
             <div className='flex flex-col gap-4 md:flex-row md:items-end md:justify-between'>
                 <div className='space-y-2'>
                     {eyebrow ? (
-                        <p className='text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700'>
+                        <p className='text-xs font-semibold uppercase tracking-[0.18em] text-blue-700'>
                             {eyebrow}
                         </p>
                     ) : null}
-                    <h1 className='text-3xl font-bold tracking-tight md:text-4xl'>{title}</h1>
+                    <h1 className='text-2xl font-bold tracking-tight text-slate-900 md:text-3xl'>{title}</h1>
                     <p className='max-w-3xl text-sm text-slate-600 md:text-base'>{description}</p>
                 </div>
                 {action}

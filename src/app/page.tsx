@@ -9,17 +9,20 @@ export default function Home() {
                     <p className='text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700'>
                         Camera-first Campus Platform
                     </p>
-                    <h1 className='text-4xl font-bold tracking-tight md:text-5xl'>Campus Gallery</h1>
+                    <h1 className='text-4xl font-bold tracking-tight md:text-5xl'>
+                        Campus Gallery
+                    </h1>
                     <p className='max-w-2xl text-base text-slate-600 md:text-lg'>
-                        Real-time, role-based, and offline-capable social sharing where every image is captured live
-                        from the website camera.
+                        Real-time, role-based, and offline-capable social
+                        sharing where every image is captured live from the
+                        website camera.
                     </p>
                     <div className='flex flex-wrap gap-3'>
                         <Link
                             href='/feed'
                             className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500'
                         >
-                            Open Feed
+                            Open Realtime Feed
                         </Link>
                         <Link
                             href='/camera'
@@ -30,7 +33,9 @@ export default function Home() {
                     </div>
                 </div>
                 <div className='space-y-3 rounded-2xl bg-slate-900 p-5 text-slate-100'>
-                    <p className='text-sm font-semibold text-cyan-300'>System Identity</p>
+                    <p className='text-sm font-semibold text-cyan-300'>
+                        System Identity
+                    </p>
                     <ul className='space-y-2 text-sm'>
                         <li>Camera-only uploads</li>
                         <li>Realtime interactions</li>

@@ -41,6 +41,7 @@ function marginStyle(depth: number): CSSProperties {
 }
 
 export default function FreedomWallPage() {
+    const [targetPostId, setTargetPostId] = useState('');
     const [content, setContent] = useState('');
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState('');
@@ -56,10 +57,24 @@ export default function FreedomWallPage() {
     const [posting, setPosting] = useState(false);
     const [busyPostId, setBusyPostId] = useState('');
     const openCommentsRef = useRef<Record<string, boolean>>({});
+    const focusedPostIdRef = useRef('');
 
     useEffect(() => {
         openCommentsRef.current = openCommentsByPost;
     }, [openCommentsByPost]);
+
+    useEffect(() => {
+        const readTargetPost = () => {
+            const params = new URLSearchParams(window.location.search);
+            setTargetPostId((params.get('post') ?? '').trim());
+        };
+
+        readTargetPost();
+        window.addEventListener('popstate', readTargetPost);
+        return () => {
+            window.removeEventListener('popstate', readTargetPost);
+        };
+    }, []);
 
     useEffect(() => {
         if (!imageFile) {
@@ -125,6 +140,17 @@ export default function FreedomWallPage() {
             unsubscribe();
         };
     }, []);
+
+    useEffect(() => {
+        if (!targetPostId || focusedPostIdRef.current === targetPostId) return;
+        const targetNode = document.querySelector<HTMLElement>(`[data-freedom-post-id="${targetPostId}"]`);
+        if (!targetNode) return;
+        targetNode.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+        });
+        focusedPostIdRef.current = targetPostId;
+    }, [items, targetPostId]);
 
     async function submitPost() {
         if (posting) return;
@@ -304,7 +330,12 @@ export default function FreedomWallPage() {
                             const busy = busyPostId === post.id;
 
                             return (
-                                <article key={post.id} className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
+                                <article
+                                    key={post.id}
+                                    id={`freedom-post-${post.id}`}
+                                    data-freedom-post-id={post.id}
+                                    className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
+                                >
                                     <div className='flex items-start justify-between gap-3'>
                                         <div>
                                             <p className='text-sm font-semibold text-slate-800'>{post.authorName ?? 'Unknown'}</p>

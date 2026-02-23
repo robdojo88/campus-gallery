@@ -27,7 +27,7 @@ export default function RootLayout({
         <html lang='en' suppressHydrationWarning>
             <body
                 suppressHydrationWarning
-                className={`${bodyFont.variable} ${headingFont.variable} min-h-screen bg-gradient-to-br from-amber-50 via-cyan-50 to-blue-100 text-slate-900 antialiased`}
+                className={`${bodyFont.variable} ${headingFont.variable} min-h-screen bg-slate-100 text-slate-900 antialiased transition-colors`}
             >
                 <OfflineSync />
                 {children}

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { FeedLoader } from '@/components/feed/feed-loader';
@@ -12,6 +13,7 @@ import type { Post } from '@/lib/types';
 const PAGE_SIZE = 5;
 
 export default function FeedPage() {
+    const [targetPostId, setTargetPostId] = useState('');
     const [campusPosts, setCampusPosts] = useState<Post[]>([]);
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
@@ -20,10 +22,24 @@ export default function FeedPage() {
     const [hasMore, setHasMore] = useState(false);
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const postsCountRef = useRef(0);
+    const focusedPostIdRef = useRef('');
 
     useEffect(() => {
         postsCountRef.current = campusPosts.length;
     }, [campusPosts]);
+
+    useEffect(() => {
+        const readTargetPost = () => {
+            const params = new URLSearchParams(window.location.search);
+            setTargetPostId((params.get('post') ?? '').trim());
+        };
+
+        readTargetPost();
+        window.addEventListener('popstate', readTargetPost);
+        return () => {
+            window.removeEventListener('popstate', readTargetPost);
+        };
+    }, []);
 
     const loadInitial = useCallback(async () => {
         setStatus('');
@@ -119,14 +135,55 @@ export default function FeedPage() {
         };
     }, [hasMore, loadMore, loading]);
 
+    useEffect(() => {
+        if (!targetPostId || focusedPostIdRef.current === targetPostId) return;
+
+        const targetNode = document.querySelector<HTMLElement>(
+            `[data-post-id="${targetPostId}"]`,
+        );
+        if (targetNode) {
+            targetNode.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+            });
+            focusedPostIdRef.current = targetPostId;
+            return;
+        }
+
+        if (!loading && hasMore && !loadingMore) {
+            void loadMore();
+        }
+    }, [campusPosts, hasMore, loadMore, loading, loadingMore, targetPostId]);
+
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
                 {/* <PageHeader
                     eyebrow='Realtime Feed'
                     title='Campus Feed'
-                    description='Live social feed for students, teachers, and staff. Sorted by latest or most liked.'
+                    description='Live campus timeline with camera-first posts, reactions, and threaded comments.'
                 /> */}
+                {/* <section className='mx-auto mb-4 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'>
+                    <div className='flex flex-wrap items-center justify-between gap-3'>
+                        <p className='text-sm font-medium text-slate-700'>
+                            Share a moment with the community.
+                        </p>
+                        <div className='flex items-center gap-2'>
+                            <Link
+                                href='/camera'
+                                className='rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500'
+                            >
+                                Capture Photo
+                            </Link>
+                            <Link
+                                href='/camera/multi'
+                                className='rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50'
+                            >
+                                Batch Mode
+                            </Link>
+                        </div>
+                    </div>
+                </section> */}
                 {loading ? <FeedLoader count={3} /> : null}
                 {!loading && status ? (
                     <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
@@ -136,7 +193,13 @@ export default function FeedPage() {
                 {!loading && campusPosts.length > 0 ? (
                     <div className='mx-auto w-full max-w-3xl space-y-4'>
                         {campusPosts.map((post) => (
-                            <PostCard key={post.id} post={post} />
+                            <div
+                                key={post.id}
+                                id={`post-${post.id}`}
+                                data-post-id={post.id}
+                            >
+                                <PostCard post={post} />
+                            </div>
                         ))}
                     </div>
                 ) : null}

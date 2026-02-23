@@ -6,11 +6,16 @@ import type {
     AppNotification,
     FreedomPost,
     FreedomWallComment,
+    GlobalSearchResults,
     NotificationType,
     OfflineCapture,
     Post,
     PostComment,
     Review,
+    SearchDateResult,
+    SearchEventResult,
+    SearchPostResult,
+    SearchUserResult,
     UserRole,
     Visibility,
 } from '@/lib/types';
@@ -23,6 +28,7 @@ type DbUser = {
     avatar_url: string | null;
     created_at: string;
 };
+type DbSearchUserRow = Pick<DbUser, 'id' | 'name' | 'email' | 'role' | 'avatar_url'>;
 
 type DbPost = {
     id: string;
@@ -41,6 +47,11 @@ type DbPostImage = {
 type DbEventOption = {
     id: string;
     name: string;
+};
+type DbEventSearch = {
+    id: string;
+    name: string;
+    description: string | null;
 };
 
 type DbLike = { post_id: string };
@@ -225,6 +236,24 @@ function normalizeUuid(value?: string): string | undefined {
 
 function normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+}
+
+function normalizeSearchQuery(query: string): string {
+    return query.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+}
+
+function toIlikePattern(query: string): string {
+    const normalized = normalizeSearchQuery(query).replace(/[,%]/g, ' ');
+    return `%${normalized}%`;
+}
+
+function dedupeById<T extends { id: string }>(items: T[]): T[] {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+    });
 }
 
 function getUtcDateKey(createdAt: string): string {
@@ -1508,18 +1537,35 @@ async function mapNotificationsRows(rows: DbNotification[]): Promise<AppNotifica
         });
     }
 
-    return rows.map((row) => ({
-        id: row.id,
-        recipientUserId: row.recipient_user_id,
-        actorUserId: row.actor_user_id ?? undefined,
-        actorName: row.actor_user_id ? actorNameById.get(row.actor_user_id) : undefined,
-        type: normalizeNotificationType(row.type),
-        title: row.title,
-        body: row.body,
-        data: row.data ?? {},
-        readAt: row.read_at ?? undefined,
-        createdAt: row.created_at,
-    }));
+    return rows.map((row) => {
+        const type = normalizeNotificationType(row.type);
+        const isIncognitoNotification = type === 'incognito_like' || type === 'incognito_comment';
+
+        let title = row.title;
+        let body = row.body;
+        if (isIncognitoNotification) {
+            title = 'New activity on your anonymous post';
+            body = type === 'incognito_like'
+                ? 'Someone liked one of your anonymous posts.'
+                : 'Someone commented on your anonymous post.';
+        }
+
+        return {
+            id: row.id,
+            recipientUserId: row.recipient_user_id,
+            actorUserId: isIncognitoNotification ? undefined : row.actor_user_id ?? undefined,
+            actorName:
+                isIncognitoNotification || !row.actor_user_id
+                    ? undefined
+                    : actorNameById.get(row.actor_user_id),
+            type,
+            title,
+            body,
+            data: row.data ?? {},
+            readAt: row.read_at ?? undefined,
+            createdAt: row.created_at,
+        };
+    });
 }
 
 export async function fetchNotificationsPage(input: {
@@ -1882,6 +1928,242 @@ export async function fetchUsers() {
     const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false }).returns<DbUser[]>();
     if (error) throw toAppError(error);
     return (data ?? []).map(mapUser);
+}
+
+export async function searchGlobalContent(
+    query: string,
+    options?: { limit?: number },
+): Promise<GlobalSearchResults> {
+    const term = normalizeSearchQuery(query);
+    const empty: GlobalSearchResults = {
+        users: [],
+        events: [],
+        dates: [],
+        posts: [],
+    };
+
+    if (term.length < 2) return empty;
+
+    const supabase = getSupabase();
+    const safeLimit = Math.max(1, Math.min(options?.limit ?? 6, 20));
+    const ilikePattern = toIlikePattern(term);
+    const termLower = term.toLowerCase();
+    const isDateLike =
+        /\d/.test(termLower) ||
+        /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/.test(
+            termLower,
+        );
+
+    const profile = await getCurrentUserProfile().catch(() => null);
+    const isVisitor = profile?.role === 'visitor';
+
+    const users: SearchUserResult[] = [];
+    const events: SearchEventResult[] = [];
+    const dates: SearchDateResult[] = [];
+    const posts: SearchPostResult[] = [];
+
+    try {
+        const [byNameResult, byEmailResult] = await Promise.all([
+            supabase
+                .from('users')
+                .select('id,name,email,role,avatar_url')
+                .ilike('name', ilikePattern)
+                .order('name', { ascending: true })
+                .limit(safeLimit)
+                .returns<DbSearchUserRow[]>(),
+            supabase
+                .from('users')
+                .select('id,name,email,role,avatar_url')
+                .ilike('email', ilikePattern)
+                .order('name', { ascending: true })
+                .limit(safeLimit)
+                .returns<DbSearchUserRow[]>(),
+        ]);
+
+        if (byNameResult.error) throw byNameResult.error;
+        if (byEmailResult.error) throw byEmailResult.error;
+
+        const merged = dedupeById([...(byNameResult.data ?? []), ...(byEmailResult.data ?? [])]).slice(0, safeLimit);
+        users.push(
+            ...merged.map((row) => ({
+                id: row.id,
+                name: row.name,
+                email: row.email,
+                role: row.role,
+                avatarUrl: resolveAvatarUrl(row.avatar_url),
+            })),
+        );
+    } catch (error) {
+        if (!isPermissionDeniedError(error) && !isMissingTableError(error, 'users')) {
+            throw toAppError(error);
+        }
+    }
+
+    try {
+        const [byNameResult, byDescriptionResult] = await Promise.all([
+            supabase
+                .from('events')
+                .select('id,name,description')
+                .ilike('name', ilikePattern)
+                .order('created_at', { ascending: false })
+                .limit(safeLimit)
+                .returns<DbEventSearch[]>(),
+            supabase
+                .from('events')
+                .select('id,name,description')
+                .ilike('description', ilikePattern)
+                .order('created_at', { ascending: false })
+                .limit(safeLimit)
+                .returns<DbEventSearch[]>(),
+        ]);
+
+        if (byNameResult.error) throw byNameResult.error;
+        if (byDescriptionResult.error) throw byDescriptionResult.error;
+
+        const merged = dedupeById([...(byNameResult.data ?? []), ...(byDescriptionResult.data ?? [])]).slice(0, safeLimit);
+        events.push(
+            ...merged.map((row) => ({
+                id: row.id,
+                name: row.name,
+                description: row.description ?? '',
+            })),
+        );
+    } catch (error) {
+        if (!isPermissionDeniedError(error) && !isMissingTableError(error, 'events')) {
+            throw toAppError(error);
+        }
+    }
+
+    try {
+        let postsQuery = supabase
+            .from('posts')
+            .select('id,user_id,image_url,caption,visibility,event_id,created_at')
+            .not('caption', 'is', null)
+            .ilike('caption', ilikePattern)
+            .order('created_at', { ascending: false })
+            .limit(safeLimit);
+
+        if (isVisitor) {
+            postsQuery = postsQuery.eq('visibility', 'visitor');
+        }
+
+        const { data: postRows, error: postsError } = await postsQuery.returns<DbPost[]>();
+        if (postsError) throw postsError;
+
+        const validPostRows = (postRows ?? []).filter((row) => Boolean(row.caption));
+        if (validPostRows.length > 0) {
+            const authorIds = [...new Set(validPostRows.map((row) => row.user_id))];
+            const eventIds = [...new Set(validPostRows.map((row) => row.event_id).filter((value): value is string => Boolean(value)))];
+
+            const authorNameById = new Map<string, string>();
+            const eventNameById = new Map<string, string>();
+
+            if (authorIds.length > 0) {
+                const { data: authors, error: authorsError } = await supabase
+                    .from('users')
+                    .select('id,name')
+                    .in('id', authorIds)
+                    .returns<Array<{ id: string; name: string }>>();
+                if (!authorsError && authors) {
+                    authors.forEach((row) => {
+                        authorNameById.set(row.id, row.name);
+                    });
+                }
+            }
+
+            if (eventIds.length > 0) {
+                const { data: eventRows, error: eventRowsError } = await supabase
+                    .from('events')
+                    .select('id,name')
+                    .in('id', eventIds)
+                    .returns<Array<{ id: string; name: string }>>();
+                if (!eventRowsError && eventRows) {
+                    eventRows.forEach((row) => {
+                        eventNameById.set(row.id, row.name);
+                    });
+                }
+            }
+
+            posts.push(
+                ...validPostRows.map((row) => ({
+                    id: row.id,
+                    caption: row.caption ?? '',
+                    imageUrl: normalizeCaptureUrl(row.image_url),
+                    createdAt: row.created_at,
+                    visibility: row.visibility,
+                    authorName: authorNameById.get(row.user_id) ?? 'User',
+                    eventName: row.event_id ? eventNameById.get(row.event_id) : undefined,
+                })),
+            );
+        }
+    } catch (error) {
+        if (!isPermissionDeniedError(error) && !isMissingTableError(error, 'posts')) {
+            throw toAppError(error);
+        }
+    }
+
+    if (isDateLike) {
+        try {
+            if (isVisitor) {
+                const { data: rows, error } = await supabase
+                    .from('posts')
+                    .select('created_at')
+                    .eq('visibility', 'visitor')
+                    .order('created_at', { ascending: false })
+                    .limit(500)
+                    .returns<Array<{ created_at: string }>>();
+                if (error) throw error;
+
+                const buckets = (rows ?? []).reduce<Record<string, number>>((acc, row) => {
+                    const key = getUtcDateKey(row.created_at);
+                    if (!key) return acc;
+                    acc[key] = (acc[key] ?? 0) + 1;
+                    return acc;
+                }, {});
+
+                Object.entries(buckets)
+                    .sort((a, b) => b[0].localeCompare(a[0]))
+                    .forEach(([dateKey, count]) => {
+                        const label = formatDateLabelFromKey(dateKey);
+                        if (!dateKey.toLowerCase().includes(termLower) && !label.toLowerCase().includes(termLower)) {
+                            return;
+                        }
+                        dates.push({
+                            date: dateKey,
+                            label,
+                            count,
+                        });
+                    });
+            } else {
+                const dateFolders = await fetchDateFolderCounts();
+                dateFolders
+                    .filter((folder) => {
+                        return (
+                            folder.date.toLowerCase().includes(termLower) ||
+                            folder.label.toLowerCase().includes(termLower)
+                        );
+                    })
+                    .forEach((folder) => {
+                        dates.push({
+                            date: folder.date,
+                            label: folder.label,
+                            count: folder.count,
+                        });
+                    });
+            }
+        } catch (error) {
+            if (!isPermissionDeniedError(error)) {
+                throw toAppError(error);
+            }
+        }
+    }
+
+    return {
+        users: users.slice(0, safeLimit),
+        events: events.slice(0, safeLimit),
+        dates: dates.slice(0, safeLimit),
+        posts: posts.slice(0, safeLimit),
+    };
 }
 
 export async function fetchAdminStats() {

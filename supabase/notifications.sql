@@ -344,22 +344,17 @@ set search_path = public
 as $$
 declare
   target_user_id uuid;
-  actor_name text;
 begin
   select p.user_id into target_user_id
   from public.incognito_posts p
   where p.id = new.post_id;
 
-  select u.name into actor_name
-  from public.users u
-  where u.id = new.user_id;
-
   perform public.insert_notification(
     target_user_id,
-    new.user_id,
+    null,
     'incognito_like',
-    'New like on your anonymous post',
-    coalesce(actor_name, 'Someone') || ' liked one of your anonymous posts.',
+    'New activity on your anonymous post',
+    'Someone liked one of your anonymous posts.',
     jsonb_build_object('incognitoPostId', new.post_id)
   );
 
@@ -375,25 +370,17 @@ set search_path = public
 as $$
 declare
   target_user_id uuid;
-  actor_name text;
-  snippet text;
 begin
   select p.user_id into target_user_id
   from public.incognito_posts p
   where p.id = new.post_id;
 
-  select u.name into actor_name
-  from public.users u
-  where u.id = new.user_id;
-
-  snippet := left(regexp_replace(coalesce(new.content, ''), '\s+', ' ', 'g'), 120);
-
   perform public.insert_notification(
     target_user_id,
-    new.user_id,
+    null,
     'incognito_comment',
-    'New comment on your anonymous post',
-    coalesce(actor_name, 'Someone') || ' commented on your anonymous post: "' || snippet || '".',
+    'New activity on your anonymous post',
+    'Someone commented on your anonymous post.',
     jsonb_build_object('incognitoPostId', new.post_id, 'commentId', new.id)
   );
 

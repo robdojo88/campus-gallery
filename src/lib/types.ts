@@ -112,3 +112,40 @@ export interface AppNotification {
     readAt?: string;
     createdAt: string;
 }
+
+export interface SearchUserResult {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+    avatarUrl: string;
+}
+
+export interface SearchEventResult {
+    id: string;
+    name: string;
+    description: string;
+}
+
+export interface SearchDateResult {
+    date: string;
+    label: string;
+    count: number;
+}
+
+export interface SearchPostResult {
+    id: string;
+    caption: string;
+    imageUrl: string;
+    createdAt: string;
+    visibility: Visibility;
+    authorName: string;
+    eventName?: string;
+}
+
+export interface GlobalSearchResults {
+    users: SearchUserResult[];
+    events: SearchEventResult[];
+    dates: SearchDateResult[];
+    posts: SearchPostResult[];
+}

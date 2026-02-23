@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
@@ -14,6 +15,35 @@ import {
 import type { AppNotification } from '@/lib/types';
 
 const PAGE_SIZE = 10;
+
+function getDataString(data: Record<string, unknown>, key: string): string | undefined {
+    const value = data[key];
+    return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function getNotificationHref(item: AppNotification): string | undefined {
+    if (item.type === 'feed_like' || item.type === 'feed_comment') {
+        const postId = getDataString(item.data, 'postId');
+        if (postId) return `/feed?post=${encodeURIComponent(postId)}`;
+    }
+
+    if (item.type === 'freedom_like' || item.type === 'freedom_comment') {
+        const postId = getDataString(item.data, 'freedomPostId');
+        if (postId) return `/freedom-wall?post=${encodeURIComponent(postId)}`;
+    }
+
+    if (item.type === 'incognito_like' || item.type === 'incognito_comment') {
+        const postId = getDataString(item.data, 'incognitoPostId');
+        if (postId) return `/incognito?post=${encodeURIComponent(postId)}`;
+    }
+
+    if (item.type === 'event_created') {
+        const eventId = getDataString(item.data, 'eventId');
+        if (eventId) return `/gallery/events?event=${encodeURIComponent(eventId)}`;
+    }
+
+    return undefined;
+}
 
 function NotificationSkeleton({ count = 3 }: { count?: number }) {
     return (
@@ -39,6 +69,7 @@ function NotificationSkeleton({ count = 3 }: { count?: number }) {
 }
 
 export default function NotificationsPage() {
+    const router = useRouter();
     const [items, setItems] = useState<AppNotification[]>([]);
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
@@ -181,6 +212,26 @@ export default function NotificationsPage() {
         }
     }
 
+    function onOpenNotification(item: AppNotification, href: string) {
+        if (!item.readAt) {
+            const now = new Date().toISOString();
+            setItems((prev) =>
+                prev.map((entry) =>
+                    entry.id === item.id ? { ...entry, readAt: entry.readAt ?? now } : entry,
+                ),
+            );
+            void markNotificationRead(item.id).catch((error) => {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to mark notification as read.';
+                setStatus(message);
+            });
+        }
+
+        router.push(href);
+    }
+
     return (
         <AuthGuard>
             <AppShell>
@@ -209,11 +260,34 @@ export default function NotificationsPage() {
                     <section className='space-y-3'>
                         {items.map((item) => {
                             const unread = !item.readAt;
+                            const href = getNotificationHref(item);
+                            const clickable = Boolean(href);
                             return (
                                 <article
                                     key={item.id}
-                                    className={`rounded-2xl border p-4 shadow-sm ${
+                                    onClick={
+                                        href
+                                            ? () => {
+                                                  onOpenNotification(item, href);
+                                              }
+                                            : undefined
+                                    }
+                                    onKeyDown={
+                                        href
+                                            ? (event) => {
+                                                  if (event.key === 'Enter' || event.key === ' ') {
+                                                      event.preventDefault();
+                                                      onOpenNotification(item, href);
+                                                  }
+                                              }
+                                            : undefined
+                                    }
+                                    role={clickable ? 'button' : undefined}
+                                    tabIndex={clickable ? 0 : undefined}
+                                    className={`rounded-2xl border p-4 shadow-sm transition ${
                                         unread ? 'border-cyan-200 bg-cyan-50/70' : 'border-slate-200 bg-white'
+                                    } ${clickable ? 'cursor-pointer hover:border-cyan-300 hover:shadow-md' : ''} ${
+                                        clickable ? 'focus:outline-none focus:ring-2 focus:ring-cyan-400/70' : ''
                                     }`}
                                 >
                                     <div className='flex flex-wrap items-start justify-between gap-2'>
@@ -233,7 +307,10 @@ export default function NotificationsPage() {
                                             {unread ? (
                                                 <button
                                                     type='button'
-                                                    onClick={() => void onMarkRead(item.id)}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void onMarkRead(item.id);
+                                                    }}
                                                     disabled={busyId === item.id}
                                                     className='rounded-lg bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                                                 >

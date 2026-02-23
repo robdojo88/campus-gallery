@@ -15,6 +15,7 @@ import {
 import type { PostComment } from '@/lib/types';
 
 export default function IncognitoPage() {
+    const [targetPostId, setTargetPostId] = useState('');
     const [content, setContent] = useState('');
     const [items, setItems] = useState<
         Array<{
@@ -34,10 +35,24 @@ export default function IncognitoPage() {
     const [posting, setPosting] = useState(false);
     const [busyPostId, setBusyPostId] = useState('');
     const openCommentsRef = useRef<Record<string, boolean>>({});
+    const focusedPostIdRef = useRef('');
 
     useEffect(() => {
         openCommentsRef.current = openCommentsByPost;
     }, [openCommentsByPost]);
+
+    useEffect(() => {
+        const readTargetPost = () => {
+            const params = new URLSearchParams(window.location.search);
+            setTargetPostId((params.get('post') ?? '').trim());
+        };
+
+        readTargetPost();
+        window.addEventListener('popstate', readTargetPost);
+        return () => {
+            window.removeEventListener('popstate', readTargetPost);
+        };
+    }, []);
 
     async function loadPosts(options: { keepStatus?: boolean } = {}) {
         try {
@@ -91,6 +106,17 @@ export default function IncognitoPage() {
             window.clearInterval(pollingTimer);
         };
     }, []);
+
+    useEffect(() => {
+        if (!targetPostId || focusedPostIdRef.current === targetPostId) return;
+        const targetNode = document.querySelector<HTMLElement>(`[data-incognito-post-id="${targetPostId}"]`);
+        if (!targetNode) return;
+        targetNode.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+        });
+        focusedPostIdRef.current = targetPostId;
+    }, [items, targetPostId]);
 
     async function submit() {
         if (posting) return;
@@ -177,7 +203,12 @@ export default function IncognitoPage() {
                 {status ? <p className='mb-4 text-sm text-slate-600'>{status}</p> : null}
                 <section className='space-y-4'>
                     {items.map((post) => (
-                        <article key={post.id} className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
+                        <article
+                            key={post.id}
+                            id={`incognito-post-${post.id}`}
+                            data-incognito-post-id={post.id}
+                            className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
+                        >
                             <p className='text-sm font-semibold text-slate-800'>Anonymous</p>
                             {post.authorId ? <p className='text-xs text-slate-500'>Admin view: {post.authorId}</p> : null}
                             <p className='mt-2 text-sm text-slate-700'>{post.content}</p>
