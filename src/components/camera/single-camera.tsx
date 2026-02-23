@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
@@ -9,6 +10,7 @@ import { getCurrentUserProfile, uploadBatchCaptures, uploadCapturedImage } from 
 import type { UserRole, Visibility } from '@/lib/types';
 
 export function SingleCameraCapture() {
+    const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [captures, setCaptures] = useState<string[]>([]);
@@ -19,6 +21,7 @@ export function SingleCameraCapture() {
     const [role, setRole] = useState<UserRole | null>(null);
     const [online, setOnline] = useState(true);
     const [status, setStatus] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         const setNetwork = () => setOnline(navigator.onLine);
@@ -102,6 +105,8 @@ export function SingleCameraCapture() {
     }
 
     async function submitCapture() {
+        if (isSubmitting) return;
+
         if (captures.length === 0) {
             setStatus('Capture at least one image first.');
             return;
@@ -130,6 +135,7 @@ export function SingleCameraCapture() {
             return;
         }
 
+        setIsSubmitting(true);
         try {
             if (captures.length === 1) {
                 await uploadCapturedImage(captures[0], {
@@ -150,8 +156,11 @@ export function SingleCameraCapture() {
             setActivePreviewIndex(0);
             setCaption('');
             setEventId('');
+            router.push('/feed');
         } catch (error) {
             setStatus(getErrorMessage(error, 'Upload failed.'));
+        } finally {
+            setIsSubmitting(false);
         }
     }
 
@@ -170,7 +179,8 @@ export function SingleCameraCapture() {
                         <button
                             type='button'
                             onClick={() => void capture()}
-                            className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500'
+                            disabled={isSubmitting}
+                            className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                         >
                             Capture
                         </button>
@@ -201,6 +211,7 @@ export function SingleCameraCapture() {
                                 <button
                                     type='button'
                                     onClick={() => setActivePreviewIndex(index)}
+                                    disabled={isSubmitting}
                                     className={`relative block aspect-square w-full overflow-hidden rounded-xl border ${
                                         activePreviewIndex === index ? 'border-cyan-600' : 'border-slate-300'
                                     }`}
@@ -210,7 +221,8 @@ export function SingleCameraCapture() {
                                 <button
                                     type='button'
                                     onClick={() => removeCapture(index)}
-                                    className='absolute -right-1 -top-1 rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-white'
+                                    disabled={isSubmitting}
+                                    className='absolute -right-1 -top-1 rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-60'
                                 >
                                     x
                                 </button>
@@ -221,6 +233,7 @@ export function SingleCameraCapture() {
                 <textarea
                     value={caption}
                     onChange={(event) => setCaption(event.target.value)}
+                    disabled={isSubmitting}
                     placeholder='Optional caption'
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
@@ -228,7 +241,7 @@ export function SingleCameraCapture() {
                     <select
                         value={visibility}
                         onChange={(event) => setVisibility(event.target.value as Visibility)}
-                        disabled={visibilityOptions.length === 1}
+                        disabled={visibilityOptions.length === 1 || isSubmitting}
                         className='rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                     >
                         {visibilityOptions.map((option) => (
@@ -240,6 +253,7 @@ export function SingleCameraCapture() {
                     <input
                         value={eventId}
                         onChange={(event) => setEventId(event.target.value)}
+                        disabled={isSubmitting}
                         placeholder='Optional event id'
                         className='rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                     />
@@ -247,9 +261,10 @@ export function SingleCameraCapture() {
                 <button
                     type='button'
                     onClick={() => void submitCapture()}
-                    className='w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700'
+                    disabled={isSubmitting}
+                    className='w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                 >
-                    Submit Post
+                    {isSubmitting ? 'Posting...' : 'Submit Post'}
                 </button>
                 {captures.length > 0 ? (
                     <button
@@ -258,7 +273,8 @@ export function SingleCameraCapture() {
                             setCaptures([]);
                             setActivePreviewIndex(0);
                         }}
-                        className='w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+                        disabled={isSubmitting}
+                        className='w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
                     >
                         Clear Captures
                     </button>

@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
@@ -9,6 +10,7 @@ import { getCurrentUserProfile, uploadBatchCaptures } from '@/lib/supabase';
 import type { Visibility } from '@/lib/types';
 
 export function MultiCameraCapture() {
+    const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [captures, setCaptures] = useState<string[]>([]);
@@ -60,6 +62,8 @@ export function MultiCameraCapture() {
     }
 
     async function uploadAll() {
+        if (uploading) return;
+
         if (captures.length === 0) {
             setStatus('Capture at least one image.');
             return;
@@ -95,6 +99,7 @@ export function MultiCameraCapture() {
             setCaptures([]);
             setCaption('');
             setEventId('');
+            router.push('/feed');
         } catch (error) {
             setStatus(getErrorMessage(error, 'Batch upload failed. Retry to upload all captures together.'));
         } finally {
@@ -115,7 +120,8 @@ export function MultiCameraCapture() {
                     <button
                         type='button'
                         onClick={() => void captureFrame()}
-                        className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500'
+                        disabled={uploading}
+                        className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                     >
                         Add Capture
                     </button>
@@ -143,12 +149,14 @@ export function MultiCameraCapture() {
                 <textarea
                     value={caption}
                     onChange={(event) => setCaption(event.target.value)}
+                    disabled={uploading}
                     placeholder='Optional caption for all captures'
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
                 <input
                     value={eventId}
                     onChange={(event) => setEventId(event.target.value)}
+                    disabled={uploading}
                     placeholder='Optional event id'
                     className='w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
@@ -159,9 +167,9 @@ export function MultiCameraCapture() {
                     type='button'
                     onClick={() => void uploadAll()}
                     disabled={uploading}
-                    className='w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60'
+                    className='w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                 >
-                    {uploading ? 'Uploading...' : 'Upload All'}
+                    {uploading ? 'Posting...' : 'Upload All'}
                 </button>
                 {status ? <p className='text-sm text-slate-700'>{status}</p> : null}
             </article>
