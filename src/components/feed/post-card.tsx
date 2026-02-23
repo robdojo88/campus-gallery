@@ -108,7 +108,10 @@ function Lightbox({
     onNext: () => void;
 }) {
     const [zoom, setZoom] = useState(1);
+    const [loadedSrc, setLoadedSrc] = useState('');
     const touchStartX = useRef<number | null>(null);
+    const currentSrc = images[index] ?? '';
+    const imageLoading = loadedSrc !== currentSrc;
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
@@ -134,15 +137,20 @@ function Lightbox({
     }
 
     return (
-        <div className='fixed inset-0 z-[100] bg-black/90 p-4 md:p-8'>
+        <div
+            className='fixed inset-0 z-[100] bg-black/90 p-4 md:p-8'
+            onClick={(event) => {
+                if (event.target === event.currentTarget) onClose();
+            }}
+        >
             <button
                 type='button'
                 onClick={onClose}
-                className='absolute right-4 top-4 rounded-full bg-white/20 px-3 py-1 text-sm font-semibold text-white hover:bg-white/30'
+                className='absolute right-4 top-[calc(env(safe-area-inset-top)+0.75rem)] z-30 rounded-full bg-white/20 px-3 py-1 text-sm font-semibold text-white hover:bg-white/30'
             >
                 Close
             </button>
-            <div className='absolute left-4 top-4 flex items-center gap-2'>
+            <div className='absolute left-4 top-[calc(env(safe-area-inset-top)+0.75rem)] z-30 flex items-center gap-2'>
                 <button
                     type='button'
                     onClick={() => setZoom((value) => Math.max(1, value - 0.25))}
@@ -162,25 +170,41 @@ function Lightbox({
             <button
                 type='button'
                 onClick={onPrev}
-                className='absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
+                className='absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
             >
                 {'<'}
             </button>
             <button
                 type='button'
                 onClick={onNext}
-                className='absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
+                className='absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
             >
                 {'>'}
             </button>
-            <div className='flex h-full items-center justify-center' onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-                <div className='relative h-full w-full max-w-6xl overflow-hidden'>
+            <div
+                className='flex h-full items-center justify-center'
+                onClick={onClose}
+                onTouchStart={onTouchStart}
+                onTouchEnd={onTouchEnd}
+            >
+                <div className='relative max-h-full max-w-full' onClick={(event) => event.stopPropagation()}>
+                    {imageLoading ? (
+                        <div className='absolute inset-0 z-20 grid place-items-center bg-black/45'>
+                            <div className='flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-xs font-semibold text-white'>
+                                <span className='h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white' />
+                                Loading image...
+                            </div>
+                        </div>
+                    ) : null}
                     <Image
-                        src={images[index]}
+                        src={currentSrc}
                         alt={`Preview ${index + 1}`}
-                        fill
-                        className='object-contain transition-transform duration-200'
+                        width={2200}
+                        height={1600}
+                        className='max-h-[82vh] w-auto max-w-[94vw] object-contain transition-transform duration-200'
                         style={{ transform: `scale(${zoom})` }}
+                        onLoad={() => setLoadedSrc(currentSrc)}
+                        onError={() => setLoadedSrc(currentSrc)}
                     />
                 </div>
             </div>

@@ -13,6 +13,7 @@ export function SingleCameraCapture() {
     const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const captureNoticeTimeoutRef = useRef<number | null>(null);
     const [captures, setCaptures] = useState<string[]>([]);
     const [activePreviewIndex, setActivePreviewIndex] = useState(0);
     const [caption, setCaption] = useState('');
@@ -21,6 +22,8 @@ export function SingleCameraCapture() {
     const [role, setRole] = useState<UserRole | null>(null);
     const [online, setOnline] = useState(true);
     const [status, setStatus] = useState('');
+    const [isCapturing, setIsCapturing] = useState(false);
+    const [captureNotice, setCaptureNotice] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
@@ -71,6 +74,14 @@ export function SingleCameraCapture() {
         };
     }, []);
 
+    useEffect(() => {
+        return () => {
+            if (captureNoticeTimeoutRef.current) {
+                window.clearTimeout(captureNoticeTimeoutRef.current);
+            }
+        };
+    }, []);
+
     const networkClass = useMemo(
         () => (online ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'),
         [online],
@@ -80,16 +91,30 @@ export function SingleCameraCapture() {
         if (role === 'member') return ['campus'] as const;
         return ['campus', 'visitor'] as const;
     }, [role]);
+    const captureButtonLabel = isCapturing ? 'Capturing...' : captureNotice ? 'Captured!' : 'Capture';
 
     async function capture() {
+        if (isCapturing || isSubmitting) return;
         if (!videoRef.current || !canvasRef.current) return;
+        setIsCapturing(true);
         try {
             const next = await captureFrameAsDataUrl(videoRef.current, canvasRef.current);
             setCaptures((prev) => [...prev, next]);
             setActivePreviewIndex(captures.length);
             setStatus('');
+            setCaptureNotice(true);
+            if (captureNoticeTimeoutRef.current) {
+                window.clearTimeout(captureNoticeTimeoutRef.current);
+            }
+            captureNoticeTimeoutRef.current = window.setTimeout(() => {
+                setCaptureNotice(false);
+                captureNoticeTimeoutRef.current = null;
+            }, 1200);
         } catch (error) {
             setStatus(getErrorMessage(error, 'Unable to capture image.'));
+            setCaptureNotice(false);
+        } finally {
+            setIsCapturing(false);
         }
     }
 
@@ -178,10 +203,10 @@ export function SingleCameraCapture() {
                             <button
                                 type='button'
                                 onClick={() => void capture()}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || isCapturing}
                                 className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                             >
-                                Capture
+                                {captureButtonLabel}
                             </button>
                         </div>
                     </div>
@@ -195,10 +220,10 @@ export function SingleCameraCapture() {
                         <button
                             type='button'
                             onClick={() => void capture()}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || isCapturing}
                             className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                         >
-                            Capture
+                            {captureButtonLabel}
                         </button>
                     </div>
                 </div>

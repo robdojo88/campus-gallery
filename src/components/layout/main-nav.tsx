@@ -119,14 +119,14 @@ export function MainNav() {
                     ) : null}
                 </div>
             </div>
-            <nav className='mx-auto grid w-full max-w-7xl grid-cols-4 gap-2 px-4 pb-3 md:hidden md:px-8'>
-                {visibleLinks.slice(0, 4).map((link) => {
+            <nav className='mx-auto flex w-full max-w-7xl flex-wrap gap-2 px-4 pb-3 md:hidden md:px-8'>
+                {visibleLinks.map((link) => {
                     const active = pathname.startsWith(link.href);
                     return (
                         <Link
                             key={link.href}
                             href={link.href}
-                            className={`rounded-xl px-2 py-2 text-center text-xs font-medium ${
+                            className={`rounded-xl px-3 py-2 text-center text-xs font-medium ${
                                 active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'
                             }`}
                         >

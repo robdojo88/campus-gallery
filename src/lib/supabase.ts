@@ -66,6 +66,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 let browserClient: SupabaseClient | null = null;
+let sessionRecoveryPromise: Promise<void> | null = null;
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -135,6 +136,25 @@ function normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
 }
 
+function getUtcDateKey(createdAt: string): string {
+    const date = new Date(createdAt);
+    if (Number.isNaN(date.getTime())) return '';
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function formatDateLabelFromKey(dateKey: string): string {
+    const date = new Date(`${dateKey}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime())) return dateKey;
+    return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+    });
+}
+
 function toAppError(error: unknown, fallback = 'Unexpected error.'): Error {
     if (error instanceof Error) return error;
 
@@ -158,6 +178,47 @@ function toAppError(error: unknown, fallback = 'Unexpected error.'): Error {
     }
 
     return new Error(fallback);
+}
+
+function isSessionMissingError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const name =
+        'name' in error && typeof (error as { name?: unknown }).name === 'string'
+            ? (error as { name: string }).name.toLowerCase()
+            : '';
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message.toLowerCase()
+            : '';
+
+    return name.includes('authsessionmissingerror') || message.includes('auth session missing');
+}
+
+function isInvalidRefreshTokenError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message.toLowerCase()
+            : '';
+    return message.includes('invalid refresh token') || message.includes('refresh token not found');
+}
+
+function isRecoverableAuthError(error: unknown): boolean {
+    return isSessionMissingError(error) || isInvalidRefreshTokenError(error);
+}
+
+async function recoverSessionState(supabase: SupabaseClient): Promise<void> {
+    if (!sessionRecoveryPromise) {
+        sessionRecoveryPromise = supabase.auth
+            .signOut({ scope: 'local' })
+            .catch(() => undefined)
+            .then(() => undefined)
+            .finally(() => {
+                sessionRecoveryPromise = null;
+            });
+    }
+
+    await sessionRecoveryPromise;
 }
 
 function extensionFromMimeType(mimeType: string): string {
@@ -234,13 +295,21 @@ export function hasSupabaseConfig(): boolean {
 export async function getSessionUser(): Promise<User | null> {
     const supabase = getSupabase();
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) throw toAppError(sessionError);
+    if (sessionError) {
+        if (isRecoverableAuthError(sessionError)) {
+            await recoverSessionState(supabase);
+            return null;
+        }
+        throw toAppError(sessionError);
+    }
     if (sessionData.session?.user) return sessionData.session.user;
 
     const { data, error } = await supabase.auth.getUser();
     if (error) {
-        if (error.name === 'AuthSessionMissingError') return null;
-        if (error.message.toLowerCase().includes('auth session missing')) return null;
+        if (isRecoverableAuthError(error)) {
+            await recoverSessionState(supabase);
+            return null;
+        }
         throw toAppError(error);
     }
     return data.user ?? null;
@@ -344,7 +413,13 @@ export async function signInWithGoogle(): Promise<void> {
 export async function signOutUser() {
     const supabase = getSupabase();
     const { error } = await supabase.auth.signOut();
-    if (error) throw toAppError(error);
+    if (error) {
+        if (isRecoverableAuthError(error)) {
+            await recoverSessionState(supabase);
+            return;
+        }
+        throw toAppError(error);
+    }
 }
 
 async function uploadOneCapture(input: {
@@ -611,14 +686,33 @@ export async function fetchEvents(): Promise<Array<{ id: string; name: string; d
     return mapped;
 }
 
-export async function fetchDateFolderCounts(): Promise<Array<{ date: string; count: number }>> {
-    const posts = await fetchPosts();
+export async function fetchDateFolderCounts(): Promise<Array<{ date: string; count: number; label: string }>> {
+    const posts = await fetchPosts({ visibility: 'campus' });
     const grouped = posts.reduce<Record<string, number>>((acc, post) => {
-        const date = new Date(post.createdAt).toLocaleDateString();
-        acc[date] = (acc[date] ?? 0) + 1;
+        const dateKey = getUtcDateKey(post.createdAt);
+        if (!dateKey) return acc;
+        acc[dateKey] = (acc[dateKey] ?? 0) + 1;
         return acc;
     }, {});
-    return Object.entries(grouped).map(([date, count]) => ({ date, count }));
+
+    return Object.entries(grouped)
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([dateKey, count]) => ({
+            date: dateKey,
+            count,
+            label: formatDateLabelFromKey(dateKey),
+        }));
+}
+
+export async function fetchDateFolderPosts(dateKey: string): Promise<Post[]> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+        throw new Error('Invalid date folder format.');
+    }
+
+    const posts = await fetchPosts({ visibility: 'campus' });
+    return posts
+        .filter((post) => getUtcDateKey(post.createdAt) === dateKey)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 export async function fetchUserProfile(userId: string) {

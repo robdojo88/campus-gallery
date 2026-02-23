@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { SessionLoader } from '@/components/ui/session-loader';
 import { ensureUserProfile, getCurrentUserProfile, getSessionUser } from '@/lib/supabase';
 import type { UserRole } from '@/lib/types';
 
@@ -87,11 +88,7 @@ export function AuthGuard({
     }, [normalizedRoles, pathname, rolesKey, router]);
 
     if (loading) {
-        return (
-            <div className='rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600'>
-                Loading account session...
-            </div>
-        );
+        return <SessionLoader />;
     }
 
     if (!allowed) return null;

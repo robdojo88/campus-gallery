@@ -13,11 +13,14 @@ export function MultiCameraCapture() {
     const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const captureNoticeTimeoutRef = useRef<number | null>(null);
     const [captures, setCaptures] = useState<string[]>([]);
     const [caption, setCaption] = useState('');
     const [eventId, setEventId] = useState('');
     const [visibility, setVisibility] = useState<Visibility>('campus');
     const [status, setStatus] = useState('');
+    const [isCapturing, setIsCapturing] = useState(false);
+    const [captureNotice, setCaptureNotice] = useState(false);
     const [uploading, setUploading] = useState(false);
 
     useEffect(() => {
@@ -50,16 +53,39 @@ export function MultiCameraCapture() {
         return () => stream?.getTracks().forEach((track) => track.stop());
     }, []);
 
+    useEffect(() => {
+        return () => {
+            if (captureNoticeTimeoutRef.current) {
+                window.clearTimeout(captureNoticeTimeoutRef.current);
+            }
+        };
+    }, []);
+
     async function captureFrame() {
+        if (isCapturing || uploading) return;
         if (!videoRef.current || !canvasRef.current) return;
+        setIsCapturing(true);
         try {
             const imageData = await captureFrameAsDataUrl(videoRef.current, canvasRef.current);
             setCaptures((prev) => [...prev, imageData]);
             setStatus('');
+            setCaptureNotice(true);
+            if (captureNoticeTimeoutRef.current) {
+                window.clearTimeout(captureNoticeTimeoutRef.current);
+            }
+            captureNoticeTimeoutRef.current = window.setTimeout(() => {
+                setCaptureNotice(false);
+                captureNoticeTimeoutRef.current = null;
+            }, 1200);
         } catch (error) {
             setStatus(getErrorMessage(error, 'Unable to capture image.'));
+            setCaptureNotice(false);
+        } finally {
+            setIsCapturing(false);
         }
     }
+
+    const captureButtonLabel = isCapturing ? 'Capturing...' : captureNotice ? 'Captured!' : 'Add Capture';
 
     async function uploadAll() {
         if (uploading) return;
@@ -119,10 +145,10 @@ export function MultiCameraCapture() {
                         <button
                             type='button'
                             onClick={() => void captureFrame()}
-                            disabled={uploading}
+                            disabled={uploading || isCapturing}
                             className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                         >
-                            Add Capture
+                            {captureButtonLabel}
                         </button>
                     </div>
                 </div>
@@ -133,10 +159,10 @@ export function MultiCameraCapture() {
                     <button
                         type='button'
                         onClick={() => void captureFrame()}
-                        disabled={uploading}
+                        disabled={uploading || isCapturing}
                         className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                     >
-                        Add Capture
+                        {captureButtonLabel}
                     </button>
                 </div>
             </article>
