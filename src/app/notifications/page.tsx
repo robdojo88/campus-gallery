@@ -1,57 +1,152 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
 import {
-    fetchNotifications,
+    fetchNotificationsPage,
     markAllNotificationsRead,
     markNotificationRead,
     subscribeToNotifications,
 } from '@/lib/supabase';
 import type { AppNotification } from '@/lib/types';
 
+const PAGE_SIZE = 10;
+
+function NotificationSkeleton({ count = 3 }: { count?: number }) {
+    return (
+        <section className='space-y-3'>
+            {Array.from({ length: count }).map((_, index) => (
+                <motion.article
+                    key={`notif-skeleton-${index}`}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2, delay: index * 0.04 }}
+                    className='overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'
+                >
+                    <div className='space-y-2'>
+                        <div className='h-4 w-40 animate-pulse rounded bg-slate-200' />
+                        <div className='h-3 w-full animate-pulse rounded bg-slate-100' />
+                        <div className='h-3 w-2/3 animate-pulse rounded bg-slate-100' />
+                        <div className='h-3 w-28 animate-pulse rounded bg-slate-100' />
+                    </div>
+                </motion.article>
+            ))}
+        </section>
+    );
+}
+
 export default function NotificationsPage() {
     const [items, setItems] = useState<AppNotification[]>([]);
-    const [status, setStatus] = useState('Loading notifications...');
+    const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [busyId, setBusyId] = useState('');
     const [markingAll, setMarkingAll] = useState(false);
+    const [cursor, setCursor] = useState<string | undefined>(undefined);
+    const [hasMore, setHasMore] = useState(false);
+    const anchorRef = useRef<HTMLDivElement | null>(null);
+    const itemsCountRef = useRef(0);
 
     const unreadCount = useMemo(() => items.filter((item) => !item.readAt).length, [items]);
 
-    async function load(options: { silent?: boolean } = {}) {
-        if (!options.silent) {
-            setLoading(true);
-        }
+    useEffect(() => {
+        itemsCountRef.current = items.length;
+    }, [items]);
+
+    const loadInitial = useCallback(async () => {
+        setStatus('');
+        setCursor(undefined);
+        setHasMore(false);
+        setLoading(true);
         try {
-            const data = await fetchNotifications(120);
-            setItems(data);
-            setStatus(data.length === 0 ? 'No notifications yet.' : '');
+            const page = await fetchNotificationsPage({ limit: PAGE_SIZE });
+            setItems(page.items);
+            setCursor(page.nextCursor);
+            setHasMore(page.hasMore);
+            if (page.items.length === 0) {
+                setStatus('No notifications yet.');
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to load notifications.';
             setStatus(message);
         } finally {
-            if (!options.silent) {
-                setLoading(false);
-            }
+            setLoading(false);
         }
-    }
+    }, []);
+
+    const refreshLoaded = useCallback(async () => {
+        const loadedCount = Math.max(PAGE_SIZE, itemsCountRef.current);
+        try {
+            const page = await fetchNotificationsPage({ limit: loadedCount });
+            setItems(page.items);
+            setCursor(page.nextCursor);
+            setHasMore(page.hasMore);
+            if (page.items.length > 0) {
+                setStatus('');
+            } else {
+                setStatus('No notifications yet.');
+            }
+        } catch {
+            // Keep current content visible if background refresh fails.
+        }
+    }, []);
+
+    const loadMore = useCallback(async () => {
+        if (!hasMore || !cursor || loading || loadingMore) return;
+        setLoadingMore(true);
+        try {
+            const page = await fetchNotificationsPage({
+                limit: PAGE_SIZE,
+                beforeCreatedAt: cursor,
+            });
+            setItems((prev) => {
+                const existingIds = new Set(prev.map((item) => item.id));
+                const next = page.items.filter((item) => !existingIds.has(item.id));
+                return [...prev, ...next];
+            });
+            setCursor(page.nextCursor);
+            setHasMore(page.hasMore);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to load previous notifications.';
+            setStatus(message);
+        } finally {
+            setLoadingMore(false);
+        }
+    }, [cursor, hasMore, loading, loadingMore]);
 
     useEffect(() => {
-        void load();
+        void loadInitial();
         const unsubscribe = subscribeToNotifications(() => {
-            void load({ silent: true });
+            void refreshLoaded();
         });
         const pollingTimer = window.setInterval(() => {
-            void load({ silent: true });
+            void refreshLoaded();
         }, 5000);
         return () => {
             unsubscribe();
             window.clearInterval(pollingTimer);
         };
-    }, []);
+    }, [loadInitial, refreshLoaded]);
+
+    useEffect(() => {
+        if (!anchorRef.current || !hasMore || loading) return;
+        const node = anchorRef.current;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    void loadMore();
+                }
+            },
+            { rootMargin: '200px 0px 200px 0px' },
+        );
+        observer.observe(node);
+        return () => {
+            observer.disconnect();
+        };
+    }, [hasMore, loadMore, loading]);
 
     async function onMarkRead(notificationId: string) {
         if (busyId) return;
@@ -105,9 +200,7 @@ export default function NotificationsPage() {
                     }
                 />
 
-                {loading ? (
-                    <p className='rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>Loading notifications...</p>
-                ) : null}
+                {loading ? <NotificationSkeleton count={4} /> : null}
                 {!loading && status ? (
                     <p className='rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>{status}</p>
                 ) : null}
@@ -132,7 +225,11 @@ export default function NotificationsPage() {
                                             </p>
                                         </div>
                                         <div className='flex items-center gap-2'>
-                                            {unread ? <span className='rounded-full bg-cyan-600 px-2 py-0.5 text-[10px] font-bold text-white'>NEW</span> : null}
+                                            {unread ? (
+                                                <span className='rounded-full bg-cyan-600 px-2 py-0.5 text-[10px] font-bold text-white'>
+                                                    NEW
+                                                </span>
+                                            ) : null}
                                             {unread ? (
                                                 <button
                                                     type='button'
@@ -149,6 +246,21 @@ export default function NotificationsPage() {
                             );
                         })}
                     </section>
+                ) : null}
+
+                {!loading && hasMore ? (
+                    <div className='mt-4 space-y-3'>
+                        <div ref={anchorRef} className='h-2 w-full' aria-hidden='true' />
+                        <button
+                            type='button'
+                            onClick={() => void loadMore()}
+                            disabled={loadingMore}
+                            className='w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
+                        >
+                            {loadingMore ? 'Loading previous notifications...' : 'See previous notifications'}
+                        </button>
+                        {loadingMore ? <NotificationSkeleton count={2} /> : null}
+                    </div>
                 ) : null}
             </AppShell>
         </AuthGuard>

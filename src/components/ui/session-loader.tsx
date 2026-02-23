@@ -2,9 +2,13 @@
 
 import { motion } from 'framer-motion';
 
-export function SessionLoader() {
+export function SessionLoader({ fullscreen = true }: { fullscreen?: boolean }) {
+    const containerClass = fullscreen
+        ? 'grid min-h-screen place-items-center px-4 py-10'
+        : 'grid min-h-[42vh] place-items-center px-4 py-10';
+
     return (
-        <div className='grid min-h-screen place-items-center px-4 py-10'>
+        <div className={containerClass}>
             <motion.section
                 initial={{ opacity: 0, y: 10, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}

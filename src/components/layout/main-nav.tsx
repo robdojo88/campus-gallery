@@ -1,8 +1,10 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
     countUnreadNotifications,
     getCurrentUserProfile,
@@ -33,6 +35,12 @@ type NavLink = {
 
 const NAV_ROLE_CACHE_KEY = 'campus_gallery_nav_role';
 const NAV_USER_CACHE_KEY = 'campus_gallery_nav_user_id';
+const THEME_CACHE_KEY = 'campus_gallery_theme_mode';
+const DEFAULT_AVATAR_URL = '/avatar-default.svg';
+const LIGHT_BODY_CLASSES = ['from-amber-50', 'via-cyan-50', 'to-blue-100', 'text-slate-900'];
+const DARK_BODY_CLASSES = ['from-slate-950', 'via-slate-900', 'to-slate-800', 'text-slate-100'];
+
+type ThemeMode = 'light' | 'dark';
 
 const links = [
     { href: '/feed', label: 'Feed', icon: 'feed' },
@@ -213,6 +221,22 @@ function clearAuthSnapshot(): void {
     window.localStorage.removeItem(NAV_USER_CACHE_KEY);
 }
 
+function resolveInitialThemeMode(): ThemeMode {
+    if (typeof window === 'undefined') return 'light';
+    const cached = window.localStorage.getItem(THEME_CACHE_KEY);
+    if (cached === 'dark' || cached === 'light') return cached;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyBodyTheme(mode: ThemeMode): void {
+    if (typeof document === 'undefined') return;
+    const body = document.body;
+    body.classList.remove(...(mode === 'dark' ? LIGHT_BODY_CLASSES : DARK_BODY_CLASSES));
+    body.classList.add(...(mode === 'dark' ? DARK_BODY_CLASSES : LIGHT_BODY_CLASSES));
+    document.documentElement.classList.toggle('dark', mode === 'dark');
+    document.documentElement.style.colorScheme = mode;
+}
+
 function NavIconLink({
     link,
     active,
@@ -247,9 +271,63 @@ function NavIconLink({
 export function MainNav() {
     const pathname = usePathname();
     const router = useRouter();
-    const [role, setRole] = useState<UserRole | null>(() => getCachedRole());
-    const [userId, setUserId] = useState<string | null>(() => getCachedUserId());
+    const [role, setRole] = useState<UserRole | null>(null);
+    const [userId, setUserId] = useState<string | null>(null);
+    const [userAvatarUrl, setUserAvatarUrl] = useState(DEFAULT_AVATAR_URL);
+    const [userDisplayName, setUserDisplayName] = useState('User');
+    const [themeMode, setThemeMode] = useState<ThemeMode>(() => resolveInitialThemeMode());
+    const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+    const [profileMenuPosition, setProfileMenuPosition] = useState({ top: 56, right: 12 });
     const [unreadCount, setUnreadCount] = useState(0);
+    const profileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+    const profileMenuPanelRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        applyBodyTheme(themeMode);
+        if (typeof window !== 'undefined') {
+            window.localStorage.setItem(THEME_CACHE_KEY, themeMode);
+        }
+    }, [themeMode]);
+
+    useEffect(() => {
+        if (!profileMenuOpen) return;
+
+        function updateMenuPosition() {
+            const button = profileMenuButtonRef.current;
+            if (!button || typeof window === 'undefined') return;
+            const rect = button.getBoundingClientRect();
+            setProfileMenuPosition({
+                top: Math.round(rect.bottom + 8),
+                right: Math.max(8, Math.round(window.innerWidth - rect.right)),
+            });
+        }
+
+        function onPointerDown(event: PointerEvent) {
+            const target = event.target as Node;
+            if (profileMenuButtonRef.current?.contains(target)) return;
+            if (profileMenuPanelRef.current?.contains(target)) return;
+            setProfileMenuOpen(false);
+        }
+
+        function onKeyDown(event: KeyboardEvent) {
+            if (event.key === 'Escape') {
+                setProfileMenuOpen(false);
+            }
+        }
+
+        const raf = window.requestAnimationFrame(updateMenuPosition);
+        window.addEventListener('resize', updateMenuPosition);
+        window.addEventListener('scroll', updateMenuPosition, true);
+        document.addEventListener('pointerdown', onPointerDown);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            window.cancelAnimationFrame(raf);
+            window.removeEventListener('resize', updateMenuPosition);
+            window.removeEventListener('scroll', updateMenuPosition, true);
+            document.removeEventListener('pointerdown', onPointerDown);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [profileMenuOpen]);
 
     useEffect(() => {
         let mounted = true;
@@ -261,10 +339,13 @@ export function MainNav() {
                     clearAuthSnapshot();
                     setRole(null);
                     setUserId(null);
+                    setUserAvatarUrl(DEFAULT_AVATAR_URL);
+                    setUserDisplayName('User');
                     setUnreadCount(0);
                     return;
                 }
                 setUserId(user.id);
+                setUserDisplayName(user.email?.split('@')[0] ?? 'User');
 
                 const metadataRole = normalizeRole(user.user_metadata?.role) ?? 'member';
                 setRole((current) => current ?? metadataRole);
@@ -272,10 +353,17 @@ export function MainNav() {
                 if (!mounted) return;
                 const resolvedRole = profile?.role ?? metadataRole;
                 setRole(resolvedRole);
+                setUserDisplayName(profile?.name ?? user.email?.split('@')[0] ?? 'User');
+                setUserAvatarUrl(profile?.avatarUrl || DEFAULT_AVATAR_URL);
                 setUnreadCount(unread);
                 cacheAuthSnapshot(resolvedRole, user.id);
             } catch {
                 if (!mounted) return;
+                const cachedRole = getCachedRole();
+                const cachedUserId = getCachedUserId();
+                if (cachedRole) setRole(cachedRole);
+                if (cachedUserId) setUserId(cachedUserId);
+                setUserAvatarUrl(DEFAULT_AVATAR_URL);
                 setUnreadCount(0);
             }
         }
@@ -319,9 +407,7 @@ export function MainNav() {
 
     const visibleLinks = useMemo(() => {
         if (!role) {
-            const base = ['/feed', '/camera', '/camera/multi', '/reviews'];
-            if (userId) base.push('/notifications');
-            return links.filter((link) => base.includes(link.href));
+            return links.filter((link) => link.href !== '/admin');
         }
         if (role === 'visitor') {
             return links.filter((link) =>
@@ -332,16 +418,24 @@ export function MainNav() {
             return links.filter((link) => link.href !== '/admin');
         }
         return links;
-    }, [role, userId]);
+    }, [role]);
 
     async function onLogout() {
         await signOutUser();
         clearAuthSnapshot();
+        setProfileMenuOpen(false);
         setUnreadCount(0);
         setUserId(null);
         setRole(null);
+        setUserAvatarUrl(DEFAULT_AVATAR_URL);
+        setUserDisplayName('User');
         router.push('/login');
         router.refresh();
+    }
+
+    function onToggleTheme() {
+        const nextMode: ThemeMode = themeMode === 'dark' ? 'light' : 'dark';
+        setThemeMode(nextMode);
     }
 
     return (
@@ -358,12 +452,40 @@ export function MainNav() {
                 </nav>
                 <div className='flex items-center gap-2'>
                     {userId ? (
-                        <Link
-                            href={`/profile/${userId}`}
-                            className='rounded-xl bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-500'
-                        >
-                            Profile
-                        </Link>
+                        <div className='relative'>
+                            <button
+                                ref={profileMenuButtonRef}
+                                type='button'
+                                onClick={() => setProfileMenuOpen((current) => !current)}
+                                className='relative h-10 w-10 rounded-full ring-2 ring-cyan-200 transition hover:ring-cyan-300 focus:outline-none focus-visible:ring-cyan-400'
+                                aria-label='Open profile menu'
+                                aria-expanded={profileMenuOpen}
+                            >
+                                <span className='absolute inset-0 overflow-hidden rounded-full'>
+                                    <Image
+                                        src={userAvatarUrl}
+                                        alt={`${userDisplayName} profile`}
+                                        fill
+                                        className='object-cover'
+                                        sizes='40px'
+                                    />
+                                </span>
+                            </button>
+                            <span className='pointer-events-none absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-slate-900 text-white ring-2 ring-white'>
+                                <svg
+                                    viewBox='0 0 24 24'
+                                    aria-hidden='true'
+                                    className='h-2.5 w-2.5'
+                                    fill='none'
+                                    stroke='currentColor'
+                                    strokeWidth='2.5'
+                                    strokeLinecap='round'
+                                    strokeLinejoin='round'
+                                >
+                                    <path d='m6 9 6 6 6-6' />
+                                </svg>
+                            </span>
+                        </div>
                     ) : (
                         <Link
                             href='/login'
@@ -372,15 +494,6 @@ export function MainNav() {
                             Login
                         </Link>
                     )}
-                    {userId ? (
-                        <button
-                            type='button'
-                            onClick={() => void onLogout()}
-                            className='rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100'
-                        >
-                            Logout
-                        </button>
-                    ) : null}
                 </div>
             </div>
             <nav className='mx-auto flex w-full max-w-7xl flex-wrap justify-center gap-2 overflow-x-hidden px-4 pb-3 md:hidden md:px-8'>
@@ -389,6 +502,44 @@ export function MainNav() {
                     return <NavIconLink key={link.href} link={link} active={active} unreadCount={unreadCount} />;
                 })}
             </nav>
+            {profileMenuOpen && userId && typeof document !== 'undefined'
+                ? createPortal(
+                      <div
+                          ref={profileMenuPanelRef}
+                          className='fixed z-[200] w-52 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl'
+                          style={{
+                              top: `${profileMenuPosition.top}px`,
+                              right: `${profileMenuPosition.right}px`,
+                          }}
+                      >
+                          <Link
+                              href={`/profile/${userId}`}
+                              onClick={() => setProfileMenuOpen(false)}
+                              className='block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100'
+                          >
+                              See Profile
+                          </Link>
+                          <button
+                              type='button'
+                              onClick={() => {
+                                  onToggleTheme();
+                                  setProfileMenuOpen(false);
+                              }}
+                              className='block w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100'
+                          >
+                              {themeMode === 'dark' ? 'Light mode' : 'Dark mode'}
+                          </button>
+                          <button
+                              type='button'
+                              onClick={() => void onLogout()}
+                              className='block w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-rose-600 transition hover:bg-rose-50'
+                          >
+                              Logout
+                          </button>
+                      </div>,
+                      document.body,
+                  )
+                : null}
         </header>
     );
 }

@@ -20,11 +20,11 @@ function PostImageGrid({
     onOpen: (index: number) => void;
 }) {
     const total = images.length;
-    const moreCount = Math.max(0, total - 5);
+    const moreCount = Math.max(0, total - 4);
 
     if (total === 1) {
         return (
-            <button type='button' onClick={() => onOpen(0)} className='relative block aspect-[16/10] w-full overflow-hidden'>
+            <button type='button' onClick={() => onOpen(0)} className='relative block h-[58svh] w-full overflow-hidden md:h-[60vh]'>
                 <Image src={images[0]} alt='Post image 1' fill className='object-cover' />
             </button>
         );
@@ -32,7 +32,7 @@ function PostImageGrid({
 
     if (total === 2) {
         return (
-            <div className='grid h-80 grid-cols-2 gap-1'>
+            <div className='grid h-[58svh] grid-cols-2 gap-1 md:h-[60vh]'>
                 {images.slice(0, 2).map((image, index) => (
                     <button key={image} type='button' onClick={() => onOpen(index)} className='relative overflow-hidden'>
                         <Image src={image} alt={`Post image ${index + 1}`} fill className='object-cover' />
@@ -44,7 +44,7 @@ function PostImageGrid({
 
     if (total === 3) {
         return (
-            <div className='grid h-80 grid-cols-[2fr_1fr] gap-1'>
+            <div className='grid h-[58svh] grid-cols-[2fr_1fr] gap-1 md:h-[60vh]'>
                 <button type='button' onClick={() => onOpen(0)} className='relative row-span-2 overflow-hidden'>
                     <Image src={images[0]} alt='Post image 1' fill className='object-cover' />
                 </button>
@@ -58,31 +58,14 @@ function PostImageGrid({
         );
     }
 
-    if (total === 4) {
-        return (
-            <div className='grid h-80 grid-cols-2 grid-rows-2 gap-1'>
-                {images.slice(0, 4).map((image, index) => (
+    return (
+        <div className='grid h-[58svh] grid-cols-2 grid-rows-2 gap-1 md:h-[60vh]'>
+            {images.slice(0, 4).map((image, index) => {
+                const isLastVisible = index === 3;
+                return (
                     <button key={image} type='button' onClick={() => onOpen(index)} className='relative overflow-hidden'>
                         <Image src={image} alt={`Post image ${index + 1}`} fill className='object-cover' />
-                    </button>
-                ))}
-            </div>
-        );
-    }
-
-    return (
-        <div className='grid h-80 grid-cols-3 grid-rows-2 gap-1'>
-            {images.slice(0, 5).map((image, index) => {
-                const isLast = index === 4;
-                return (
-                    <button
-                        key={image}
-                        type='button'
-                        onClick={() => onOpen(index)}
-                        className={`relative overflow-hidden ${index === 0 ? 'col-span-2 row-span-2' : ''}`}
-                    >
-                        <Image src={image} alt={`Post image ${index + 1}`} fill className='object-cover' />
-                        {isLast && moreCount > 0 ? (
+                        {isLastVisible && moreCount > 0 ? (
                             <span className='absolute inset-0 grid place-items-center bg-black/55 text-2xl font-bold text-white'>
                                 +{moreCount} more
                             </span>
@@ -100,12 +83,16 @@ function Lightbox({
     onClose,
     onPrev,
     onNext,
+    canPrev,
+    canNext,
 }: {
     images: string[];
     index: number;
     onClose: () => void;
     onPrev: () => void;
     onNext: () => void;
+    canPrev: boolean;
+    canNext: boolean;
 }) {
     const [zoom, setZoom] = useState(1);
     const [loadedSrc, setLoadedSrc] = useState('');
@@ -116,12 +103,12 @@ function Lightbox({
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') onClose();
-            if (event.key === 'ArrowLeft') onPrev();
-            if (event.key === 'ArrowRight') onNext();
+            if (event.key === 'ArrowLeft' && canPrev) onPrev();
+            if (event.key === 'ArrowRight' && canNext) onNext();
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [onClose, onNext, onPrev]);
+    }, [canNext, canPrev, onClose, onNext, onPrev]);
 
     function onTouchStart(event: TouchEvent<HTMLDivElement>) {
         touchStartX.current = event.touches[0]?.clientX ?? null;
@@ -131,8 +118,8 @@ function Lightbox({
         if (touchStartX.current === null) return;
         const endX = event.changedTouches[0]?.clientX ?? touchStartX.current;
         const delta = endX - touchStartX.current;
-        if (delta > 40) onPrev();
-        if (delta < -40) onNext();
+        if (delta > 40 && canPrev) onPrev();
+        if (delta < -40 && canNext) onNext();
         touchStartX.current = null;
     }
 
@@ -167,20 +154,24 @@ function Lightbox({
                 </button>
                 <span className='text-xs font-semibold text-white'>{Math.round(zoom * 100)}%</span>
             </div>
-            <button
-                type='button'
-                onClick={onPrev}
-                className='absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
-            >
-                {'<'}
-            </button>
-            <button
-                type='button'
-                onClick={onNext}
-                className='absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
-            >
-                {'>'}
-            </button>
+            {canPrev ? (
+                <button
+                    type='button'
+                    onClick={onPrev}
+                    className='absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
+                >
+                    {'<'}
+                </button>
+            ) : null}
+            {canNext ? (
+                <button
+                    type='button'
+                    onClick={onNext}
+                    className='absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
+                >
+                    {'>'}
+                </button>
+            ) : null}
             <div
                 className='flex h-full items-center justify-center'
                 onClick={onClose}
@@ -340,15 +331,18 @@ export function PostCard({ post }: { post: Post }) {
     }
 
     function goNextImage() {
-        setActiveImageIndex((current) => (current + 1) % images.length);
+        setActiveImageIndex((current) => Math.min(current + 1, images.length - 1));
     }
 
     function goPrevImage() {
-        setActiveImageIndex((current) => (current - 1 + images.length) % images.length);
+        setActiveImageIndex((current) => Math.max(current - 1, 0));
     }
 
+    const canPrev = activeImageIndex > 0;
+    const canNext = activeImageIndex < images.length - 1;
+
     return (
-        <article className='overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm'>
+        <article className='flex min-h-[90svh] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:min-h-[90vh]'>
             <PostImageGrid images={images} onOpen={openLightbox} />
             <div className='space-y-3 p-4 md:p-5'>
                 <div className='flex items-center justify-between gap-3'>
@@ -422,6 +416,8 @@ export function PostCard({ post }: { post: Post }) {
                     onClose={() => setLightboxOpen(false)}
                     onNext={goNextImage}
                     onPrev={goPrevImage}
+                    canPrev={canPrev}
+                    canNext={canNext}
                 />
             ) : null}
         </article>

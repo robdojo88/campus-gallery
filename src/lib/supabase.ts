@@ -815,17 +815,10 @@ export async function flushPendingCaptures(captures: OfflineCapture[]): Promise<
     }
 }
 
-export async function fetchPosts(options?: { visibility?: Visibility }): Promise<Post[]> {
-    const supabase = getSupabase();
-    let query = supabase.from('posts').select('*').order('created_at', { ascending: false });
-    if (options?.visibility) {
-        query = query.eq('visibility', options.visibility);
-    }
-
-    const { data: rawPosts, error: postsError } = await query.returns<DbPost[]>();
-    if (postsError) throw toAppError(postsError);
+async function hydratePosts(rawPosts: DbPost[]): Promise<Post[]> {
     if (!rawPosts || rawPosts.length === 0) return [];
 
+    const supabase = getSupabase();
     const postIds = rawPosts.map((post) => post.id);
     const userIds = [...new Set(rawPosts.map((post) => post.user_id))];
     const eventIds = [...new Set(rawPosts.map((post) => post.event_id).filter((value): value is string => Boolean(value)))];
@@ -869,6 +862,74 @@ export async function fetchPosts(options?: { visibility?: Visibility }): Promise
     }
 
     return mapPosts(rawPosts, users ?? [], likes ?? [], comments ?? [], postImages ?? [], eventNamesById);
+}
+
+export async function fetchPostsPage(input: {
+    visibility?: Visibility;
+    limit?: number;
+    beforeCreatedAt?: string;
+} = {}): Promise<{
+    items: Post[];
+    nextCursor?: string;
+    hasMore: boolean;
+}> {
+    const supabase = getSupabase();
+    const safeLimit = Math.max(1, Math.min(input.limit ?? 5, 50));
+
+    let query = supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(safeLimit + 1);
+    if (input.visibility) {
+        query = query.eq('visibility', input.visibility);
+    }
+    if (input.beforeCreatedAt) {
+        query = query.lt('created_at', input.beforeCreatedAt);
+    }
+
+    const { data: rows, error } = await query.returns<DbPost[]>();
+    if (error) throw toAppError(error);
+    if (!rows || rows.length === 0) {
+        return {
+            items: [],
+            hasMore: false,
+        };
+    }
+
+    const hasMore = rows.length > safeLimit;
+    const pageRows = hasMore ? rows.slice(0, safeLimit) : rows;
+    const items = await hydratePosts(pageRows);
+    const nextCursor = pageRows[pageRows.length - 1]?.created_at;
+
+    return {
+        items,
+        nextCursor,
+        hasMore,
+    };
+}
+
+export async function fetchPosts(options?: { visibility?: Visibility }): Promise<Post[]> {
+    const all: Post[] = [];
+    const seenIds = new Set<string>();
+    let cursor: string | undefined = undefined;
+    let hasMore = true;
+
+    while (hasMore) {
+        const page = await fetchPostsPage({
+            visibility: options?.visibility,
+            limit: 50,
+            beforeCreatedAt: cursor,
+        });
+
+        for (const post of page.items) {
+            if (seenIds.has(post.id)) continue;
+            seenIds.add(post.id);
+            all.push(post);
+        }
+
+        hasMore = page.hasMore;
+        cursor = page.nextCursor;
+        if (!cursor) break;
+    }
+
+    return all;
 }
 
 export async function fetchEventOptions(): Promise<Array<{ id: string; name: string }>> {
@@ -1429,25 +1490,8 @@ export function subscribeToIncognito(onChange: () => void): () => void {
     };
 }
 
-export async function fetchNotifications(limit = 60): Promise<AppNotification[]> {
+async function mapNotificationsRows(rows: DbNotification[]): Promise<AppNotification[]> {
     const supabase = getSupabase();
-    const user = await getSessionUser();
-    if (!user) return [];
-
-    const safeLimit = Math.max(1, Math.min(limit, 200));
-    const { data: rows, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('recipient_user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(safeLimit)
-        .returns<DbNotification[]>();
-    if (error) {
-        if (isMissingTableError(error, 'notifications')) {
-            return [];
-        }
-        throw toAppError(error);
-    }
     if (!rows || rows.length === 0) return [];
 
     const actorIds = [...new Set(rows.map((row) => row.actor_user_id).filter((value): value is string => Boolean(value)))];
@@ -1476,6 +1520,69 @@ export async function fetchNotifications(limit = 60): Promise<AppNotification[]>
         readAt: row.read_at ?? undefined,
         createdAt: row.created_at,
     }));
+}
+
+export async function fetchNotificationsPage(input: {
+    limit?: number;
+    beforeCreatedAt?: string;
+} = {}): Promise<{
+    items: AppNotification[];
+    nextCursor?: string;
+    hasMore: boolean;
+}> {
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) {
+        return {
+            items: [],
+            hasMore: false,
+        };
+    }
+
+    const safeLimit = Math.max(1, Math.min(input.limit ?? 10, 200));
+    let query = supabase
+        .from('notifications')
+        .select('*')
+        .eq('recipient_user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(safeLimit + 1);
+
+    if (input.beforeCreatedAt) {
+        query = query.lt('created_at', input.beforeCreatedAt);
+    }
+
+    const { data: rows, error } = await query.returns<DbNotification[]>();
+    if (error) {
+        if (isMissingTableError(error, 'notifications')) {
+            return {
+                items: [],
+                hasMore: false,
+            };
+        }
+        throw toAppError(error);
+    }
+    if (!rows || rows.length === 0) {
+        return {
+            items: [],
+            hasMore: false,
+        };
+    }
+
+    const hasMore = rows.length > safeLimit;
+    const pageRows = hasMore ? rows.slice(0, safeLimit) : rows;
+    const items = await mapNotificationsRows(pageRows);
+    const nextCursor = pageRows[pageRows.length - 1]?.created_at;
+
+    return {
+        items,
+        hasMore,
+        nextCursor,
+    };
+}
+
+export async function fetchNotifications(limit = 60): Promise<AppNotification[]> {
+    const firstPage = await fetchNotificationsPage({ limit });
+    return firstPage.items;
 }
 
 export async function countUnreadNotifications(): Promise<number> {

@@ -1,6 +1,7 @@
 -- Notifications + incognito engagement support
 
 create extension if not exists pgcrypto;
+create extension if not exists pg_cron;
 
 alter table public.events
 add column if not exists created_by uuid references public.users(id);
@@ -38,6 +39,51 @@ on public.notifications (recipient_user_id, created_at desc);
 
 create index if not exists notifications_recipient_read_at_idx
 on public.notifications (recipient_user_id, read_at);
+
+create or replace function public.cleanup_old_notifications(
+  retention interval default interval '30 days'
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  deleted_count integer := 0;
+begin
+  delete from public.notifications
+  where created_at < now() - retention;
+
+  get diagnostics deleted_count = row_count;
+  return deleted_count;
+end;
+$$;
+
+select public.cleanup_old_notifications('30 days'::interval);
+
+do $cleanup$
+declare
+  existing_job_id bigint;
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    select jobid
+    into existing_job_id
+    from cron.job
+    where jobname = 'cleanup_notifications_older_than_30_days'
+    limit 1;
+
+    if existing_job_id is not null then
+      perform cron.unschedule(existing_job_id);
+    end if;
+
+    perform cron.schedule(
+      'cleanup_notifications_older_than_30_days',
+      '30 2 * * *',
+      $job$select public.cleanup_old_notifications('30 days'::interval);$job$
+    );
+  end if;
+end
+$cleanup$;
 
 alter table public.incognito_likes enable row level security;
 alter table public.incognito_comments enable row level security;

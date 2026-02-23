@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { MainNav } from '@/components/layout/main-nav';
 import { SessionLoader } from '@/components/ui/session-loader';
 import { ensureUserProfile, getCurrentUserProfile, getSessionUser } from '@/lib/supabase';
 import type { UserRole } from '@/lib/types';
@@ -88,7 +89,14 @@ export function AuthGuard({
     }, [normalizedRoles, pathname, rolesKey, router]);
 
     if (loading) {
-        return <SessionLoader />;
+        return (
+            <div className='min-h-screen'>
+                <MainNav />
+                <main className='mx-auto w-full max-w-7xl px-4 pb-24 pt-6 md:px-8 md:pt-8'>
+                    <SessionLoader fullscreen={false} />
+                </main>
+            </div>
+        );
     }
 
     if (!allowed) return null;
