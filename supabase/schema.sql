@@ -18,9 +18,19 @@ create table if not exists public.users (
   name text not null,
   email text not null unique,
   role public.app_role not null default 'member',
-  avatar_url text,
+  avatar_url text not null default '/avatar-default.svg',
   created_at timestamptz not null default now()
 );
+
+alter table public.users
+alter column avatar_url set default '/avatar-default.svg';
+
+update public.users
+set avatar_url = '/avatar-default.svg'
+where avatar_url is null or btrim(avatar_url) = '';
+
+alter table public.users
+alter column avatar_url set not null;
 
 create table if not exists public.events (
   id uuid primary key default gen_random_uuid(),
@@ -169,17 +179,29 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.users (id, name, email, role)
+  insert into public.users (id, name, email, role, avatar_url)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'name', split_part(new.email, '@', 1), 'Campus User'),
     new.email,
-    coalesce((new.raw_user_meta_data ->> 'role')::public.app_role, 'member')
+    coalesce((new.raw_user_meta_data ->> 'role')::public.app_role, 'member'),
+    coalesce(
+      nullif(new.raw_user_meta_data ->> 'avatar_url', ''),
+      nullif(new.raw_user_meta_data ->> 'picture', ''),
+      '/avatar-default.svg'
+    )
   )
   on conflict (id) do update
   set name = excluded.name,
       email = excluded.email,
-      role = excluded.role;
+      role = excluded.role,
+      avatar_url = case
+        when public.users.avatar_url is null
+          or btrim(public.users.avatar_url) = ''
+          or public.users.avatar_url = '/avatar-default.svg'
+          then excluded.avatar_url
+        else public.users.avatar_url
+      end;
   return new;
 end;
 $$;

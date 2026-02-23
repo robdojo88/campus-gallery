@@ -116,6 +116,7 @@ type DbReview = {
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const DEFAULT_AVATAR_URL = '/avatar-default.svg';
 
 let browserClient: SupabaseClient | null = null;
 let sessionRecoveryPromise: Promise<void> | null = null;
@@ -147,13 +148,51 @@ function dataUrlToBlob(dataUrl: string): Blob {
     return new Blob([bytes], { type: mimeType });
 }
 
+function toNonEmptyString(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+}
+
+function resolveAvatarUrl(value: string | null | undefined): string {
+    return toNonEmptyString(value) ?? DEFAULT_AVATAR_URL;
+}
+
+function getAvatarFromAuthUser(user: User): string | null {
+    const metadata = user.user_metadata && typeof user.user_metadata === 'object' ? user.user_metadata : {};
+    const candidates: unknown[] = [
+        (metadata as Record<string, unknown>).avatar_url,
+        (metadata as Record<string, unknown>).picture,
+        (metadata as Record<string, unknown>).photo_url,
+    ];
+
+    if (Array.isArray(user.identities)) {
+        for (const identity of user.identities) {
+            if (!identity || typeof identity !== 'object') continue;
+            const identityData =
+                'identity_data' in identity && identity.identity_data && typeof identity.identity_data === 'object'
+                    ? (identity.identity_data as Record<string, unknown>)
+                    : null;
+            if (!identityData) continue;
+            candidates.push(identityData.avatar_url, identityData.picture, identityData.photo_url);
+        }
+    }
+
+    for (const candidate of candidates) {
+        const parsed = toNonEmptyString(candidate);
+        if (parsed) return parsed;
+    }
+
+    return null;
+}
+
 function mapUser(dbUser: DbUser) {
     return {
         id: dbUser.id,
         name: dbUser.name,
         email: dbUser.email,
         role: dbUser.role,
-        avatarUrl: dbUser.avatar_url ?? '',
+        avatarUrl: resolveAvatarUrl(dbUser.avatar_url),
         createdAt: dbUser.created_at,
     };
 }
@@ -438,19 +477,67 @@ export async function getCurrentUserProfile() {
 
 export async function ensureUserProfile(user: User): Promise<void> {
     const supabase = getSupabase();
-    const metadataName = typeof user.user_metadata?.name === 'string' ? user.user_metadata.name : '';
+    const metadataName =
+        toNonEmptyString(user.user_metadata?.name) ??
+        toNonEmptyString(user.user_metadata?.full_name) ??
+        toNonEmptyString(user.user_metadata?.user_name) ??
+        '';
     const metadataRole =
         user.user_metadata?.role === 'admin' || user.user_metadata?.role === 'member' || user.user_metadata?.role === 'visitor'
             ? user.user_metadata.role
             : 'member';
+    const metadataAvatarUrl = getAvatarFromAuthUser(user);
+    const { data: existingProfile, error: existingProfileError } = await supabase
+        .from('users')
+        .select('avatar_url')
+        .eq('id', user.id)
+        .maybeSingle<{ avatar_url: string | null }>();
+    if (existingProfileError) throw toAppError(existingProfileError);
+
+    const existingAvatarUrl = toNonEmptyString(existingProfile?.avatar_url);
+    const avatarUrl =
+        existingAvatarUrl && existingAvatarUrl !== DEFAULT_AVATAR_URL
+            ? existingAvatarUrl
+            : resolveAvatarUrl(metadataAvatarUrl ?? existingAvatarUrl);
 
     const { error } = await supabase.from('users').upsert({
         id: user.id,
         email: user.email ?? '',
         name: metadataName || user.email?.split('@')[0] || 'Campus User',
         role: metadataRole,
+        avatar_url: avatarUrl,
     });
     if (error) throw toAppError(error);
+}
+
+export async function uploadProfileAvatar(file: File): Promise<string> {
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) throw new Error('You must be logged in to update your profile photo.');
+
+    const mimeType = file.type || 'image/jpeg';
+    if (!mimeType.startsWith('image/')) {
+        throw new Error('Only image files are allowed for profile photos.');
+    }
+
+    const extension = extensionFromMimeType(mimeType);
+    const filePath = `avatars/${user.id}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from('captures').upload(filePath, file, {
+        contentType: mimeType,
+        upsert: false,
+    });
+    if (uploadError) throw toAppError(uploadError);
+
+    const { data: publicData } = supabase.storage.from('captures').getPublicUrl(filePath);
+    const publicUrl = publicData.publicUrl || `${supabaseUrl}/storage/v1/object/public/captures/${filePath}`;
+
+    const { error: updateError } = await supabase.from('users').update({ avatar_url: publicUrl }).eq('id', user.id);
+    if (updateError) {
+        await supabase.storage.from('captures').remove([filePath]);
+        throw toAppError(updateError);
+    }
+
+    return publicUrl;
 }
 
 export async function signUpWithEmail(input: {
