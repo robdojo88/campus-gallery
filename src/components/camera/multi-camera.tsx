@@ -108,12 +108,25 @@ export function MultiCameraCapture() {
     }
 
     return (
-        <section className='grid gap-6 lg:grid-cols-[1.1fr_0.9fr]'>
-            <article className='overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm'>
-                <div className='relative aspect-[4/3] bg-slate-900'>
+        <section className='-mx-4 -mt-6 grid gap-6 lg:mx-0 lg:mt-0 lg:grid-cols-[1.1fr_0.9fr]'>
+            <article className='overflow-hidden bg-white shadow-sm lg:rounded-3xl lg:border lg:border-slate-200'>
+                <div className='relative h-[100dvh] bg-slate-900 lg:aspect-[4/3] lg:h-auto'>
                     <video ref={videoRef} autoPlay playsInline muted className='h-full w-full object-cover' />
+                    <div className='absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-slate-900/90 via-slate-900/55 to-transparent p-4 lg:hidden'>
+                        <p className='text-xs font-semibold text-white'>
+                            Captures: <span className='font-bold'>{captures.length}</span>
+                        </p>
+                        <button
+                            type='button'
+                            onClick={() => void captureFrame()}
+                            disabled={uploading}
+                            className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
+                        >
+                            Add Capture
+                        </button>
+                    </div>
                 </div>
-                <div className='flex items-center justify-between gap-3 p-4'>
+                <div className='hidden items-center justify-between gap-3 p-4 lg:flex'>
                     <p className='text-sm text-slate-600'>
                         Captures: <span className='font-semibold text-slate-900'>{captures.length}</span>
                     </p>

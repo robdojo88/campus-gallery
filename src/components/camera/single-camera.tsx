@@ -165,12 +165,28 @@ export function SingleCameraCapture() {
     }
 
     return (
-        <section className='grid gap-6 lg:grid-cols-[1.2fr_0.8fr]'>
-            <article className='overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm'>
-                <div className='relative aspect-[4/3] w-full bg-slate-900'>
+        <section className='-mx-4 -mt-6 grid gap-6 lg:mx-0 lg:mt-0 lg:grid-cols-[1.2fr_0.8fr]'>
+            <article className='overflow-hidden bg-white shadow-sm lg:rounded-3xl lg:border lg:border-slate-200'>
+                <div className='relative h-[100dvh] w-full bg-slate-900 lg:aspect-[4/3] lg:h-auto'>
                     <video ref={videoRef} autoPlay playsInline muted className='h-full w-full object-cover' />
+                    <div className='absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-slate-900/90 via-slate-900/55 to-transparent p-4 lg:hidden'>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}>
+                            {online ? 'Online' : 'Offline'}
+                        </span>
+                        <div className='flex items-center gap-2'>
+                            <p className='text-xs font-semibold text-white'>Captured: {captures.length}</p>
+                            <button
+                                type='button'
+                                onClick={() => void capture()}
+                                disabled={isSubmitting}
+                                className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                                Capture
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div className='flex items-center justify-between gap-3 p-4'>
+                <div className='hidden items-center justify-between gap-3 p-4 lg:flex'>
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}>
                         {online ? 'Online - instant upload' : 'Offline - queue enabled'}
                     </span>
