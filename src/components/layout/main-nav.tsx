@@ -26,6 +26,37 @@ const links = [
     { href: '/admin', label: 'Admin' },
 ];
 
+function NotificationBell({
+    active,
+    unreadCount,
+}: {
+    active: boolean;
+    unreadCount: number;
+}) {
+    return (
+        <span className='relative inline-flex h-5 w-5 items-center justify-center'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${active ? 'text-white' : 'text-slate-700'}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
+                <path d='M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5' />
+                <path d='M9 17a3 3 0 0 0 6 0' />
+            </svg>
+            {unreadCount > 0 ? (
+                <span className='absolute -right-2 -top-2 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white'>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+            ) : null}
+        </span>
+    );
+}
+
 export function MainNav() {
     const pathname = usePathname();
     const router = useRouter();
@@ -95,7 +126,11 @@ export function MainNav() {
     }, [userId]);
 
     const visibleLinks = useMemo(() => {
-        if (!role) return links.filter((link) => ['/feed', '/camera', '/camera/multi', '/reviews'].includes(link.href));
+        if (!role) {
+            const base = ['/feed', '/camera', '/camera/multi', '/reviews'];
+            if (userId) base.push('/notifications');
+            return links.filter((link) => base.includes(link.href));
+        }
         if (role === 'visitor') {
             return links.filter((link) =>
                 ['/camera', '/camera/multi', '/visitor-gallery', '/reviews', '/notifications'].includes(link.href),
@@ -105,7 +140,7 @@ export function MainNav() {
             return links.filter((link) => link.href !== '/admin');
         }
         return links;
-    }, [role]);
+    }, [role, userId]);
 
     async function onLogout() {
         await signOutUser();
@@ -125,6 +160,20 @@ export function MainNav() {
                 <nav className='hidden flex-1 items-center gap-2 overflow-x-auto md:flex'>
                     {visibleLinks.map((link) => {
                         const active = pathname.startsWith(link.href);
+                        if (link.href === '/notifications') {
+                            return (
+                                <Link
+                                    key={link.href}
+                                    href={link.href}
+                                    aria-label='Notifications'
+                                    className={`rounded-xl p-2.5 transition ${
+                                        active ? 'bg-slate-900' : 'hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <NotificationBell active={active} unreadCount={unreadCount} />
+                                </Link>
+                            );
+                        }
                         return (
                             <Link
                                 key={link.href}
@@ -134,16 +183,7 @@ export function MainNav() {
                                         ? 'bg-slate-900 text-white'
                                         : 'text-slate-700 hover:bg-slate-100'
                                 }`}
-                            >
-                                <span className='inline-flex items-center gap-2'>
-                                    {link.label}
-                                    {link.href === '/notifications' && unreadCount > 0 ? (
-                                        <span className='rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white'>
-                                            {unreadCount > 99 ? '99+' : unreadCount}
-                                        </span>
-                                    ) : null}
-                                </span>
-                            </Link>
+                            >{link.label}</Link>
                         );
                     })}
                 </nav>
@@ -177,6 +217,20 @@ export function MainNav() {
             <nav className='mx-auto flex w-full max-w-7xl flex-wrap gap-2 px-4 pb-3 md:hidden md:px-8'>
                 {visibleLinks.map((link) => {
                     const active = pathname.startsWith(link.href);
+                    if (link.href === '/notifications') {
+                        return (
+                            <Link
+                                key={link.href}
+                                href={link.href}
+                                aria-label='Notifications'
+                                className={`rounded-xl px-3 py-2 ${
+                                    active ? 'bg-slate-900' : 'bg-slate-100'
+                                }`}
+                            >
+                                <NotificationBell active={active} unreadCount={unreadCount} />
+                            </Link>
+                        );
+                    }
                     return (
                         <Link
                             key={link.href}
@@ -184,16 +238,7 @@ export function MainNav() {
                             className={`rounded-xl px-3 py-2 text-center text-xs font-medium ${
                                 active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'
                             }`}
-                        >
-                            <span className='inline-flex items-center gap-1'>
-                                {link.label}
-                                {link.href === '/notifications' && unreadCount > 0 ? (
-                                    <span className='rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white'>
-                                        {unreadCount > 99 ? '99+' : unreadCount}
-                                    </span>
-                                ) : null}
-                            </span>
-                        </Link>
+                        >{link.label}</Link>
                     );
                 })}
             </nav>

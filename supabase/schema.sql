@@ -30,6 +30,9 @@ create table if not exists public.events (
   created_at timestamptz not null default now()
 );
 
+alter table public.events
+add column if not exists created_by uuid references public.users(id);
+
 create table if not exists public.posts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -365,13 +368,20 @@ security definer
 set search_path = public
 as $$
 declare
-  target_user_id uuid;
+  target_post_owner_id uuid;
+  target_reply_user_id uuid;
   actor_name text;
   snippet text;
 begin
-  select p.user_id into target_user_id
+  select p.user_id into target_post_owner_id
   from public.freedom_wall_posts p
   where p.id = new.post_id;
+
+  if new.parent_id is not null then
+    select c.user_id into target_reply_user_id
+    from public.freedom_wall_comments c
+    where c.id = new.parent_id;
+  end if;
 
   select u.name into actor_name
   from public.users u
@@ -380,13 +390,26 @@ begin
   snippet := left(regexp_replace(coalesce(new.content, ''), '\s+', ' ', 'g'), 120);
 
   perform public.insert_notification(
-    target_user_id,
+    target_post_owner_id,
     new.user_id,
     'freedom_comment',
     'New comment on your Freedom Wall post',
     coalesce(actor_name, 'Someone') || ' commented: "' || snippet || '".',
     jsonb_build_object('freedomPostId', new.post_id, 'commentId', new.id)
   );
+
+  if new.parent_id is not null
+     and target_reply_user_id is not null
+     and target_reply_user_id <> target_post_owner_id then
+    perform public.insert_notification(
+      target_reply_user_id,
+      new.user_id,
+      'freedom_comment',
+      'New reply on your Freedom Wall comment',
+      coalesce(actor_name, 'Someone') || ' replied: "' || snippet || '".',
+      jsonb_build_object('freedomPostId', new.post_id, 'commentId', new.id, 'parentCommentId', new.parent_id)
+    );
+  end if;
 
   return new;
 end;
