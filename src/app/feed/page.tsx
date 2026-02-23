@@ -5,7 +5,6 @@ import { AuthGuard } from '@/components/auth/auth-guard';
 import { FeedLoader } from '@/components/feed/feed-loader';
 import { AppShell } from '@/components/layout/app-shell';
 import { PostCard } from '@/components/feed/post-card';
-import { PageHeader } from '@/components/ui/page-header';
 import { getErrorMessage } from '@/lib/error-message';
 import { fetchPostsPage, subscribeToPosts } from '@/lib/supabase';
 import type { Post } from '@/lib/types';
@@ -32,7 +31,10 @@ export default function FeedPage() {
         setCursor(undefined);
         setHasMore(false);
         try {
-            const page = await fetchPostsPage({ visibility: 'campus', limit: PAGE_SIZE });
+            const page = await fetchPostsPage({
+                visibility: 'campus',
+                limit: PAGE_SIZE,
+            });
             setCampusPosts(page.items);
             setCursor(page.nextCursor);
             setHasMore(page.hasMore);
@@ -72,13 +74,18 @@ export default function FeedPage() {
             });
             setCampusPosts((prev) => {
                 const existingIds = new Set(prev.map((post) => post.id));
-                const next = page.items.filter((post) => !existingIds.has(post.id));
+                const next = page.items.filter(
+                    (post) => !existingIds.has(post.id),
+                );
                 return [...prev, ...next];
             });
             setCursor(page.nextCursor);
             setHasMore(page.hasMore);
         } catch (error) {
-            const message = getErrorMessage(error, 'Failed to load more posts.');
+            const message = getErrorMessage(
+                error,
+                'Failed to load more posts.',
+            );
             setStatus(message);
         } finally {
             setLoadingMore(false);
@@ -115,14 +122,16 @@ export default function FeedPage() {
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
-                <PageHeader
+                {/* <PageHeader
                     eyebrow='Realtime Feed'
                     title='Campus Feed'
                     description='Live social feed for students, teachers, and staff. Sorted by latest or most liked.'
-                />
+                /> */}
                 {loading ? <FeedLoader count={3} /> : null}
                 {!loading && status ? (
-                    <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>{status}</p>
+                    <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
+                        {status}
+                    </p>
                 ) : null}
                 {!loading && campusPosts.length > 0 ? (
                     <div className='mx-auto w-full max-w-3xl space-y-4'>
@@ -133,14 +142,20 @@ export default function FeedPage() {
                 ) : null}
                 {!loading && hasMore ? (
                     <div className='mx-auto mt-4 w-full max-w-3xl space-y-3'>
-                        <div ref={anchorRef} className='h-2 w-full' aria-hidden='true' />
+                        <div
+                            ref={anchorRef}
+                            className='h-2 w-full'
+                            aria-hidden='true'
+                        />
                         <button
                             type='button'
                             onClick={() => void loadMore()}
                             disabled={loadingMore}
                             className='w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
                         >
-                            {loadingMore ? 'Loading more posts...' : 'See more posts'}
+                            {loadingMore
+                                ? 'Loading more posts...'
+                                : 'See more posts'}
                         </button>
                         {loadingMore ? <FeedLoader count={2} compact /> : null}
                     </div>

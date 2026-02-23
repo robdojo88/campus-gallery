@@ -17,7 +17,7 @@ import type { UserRole } from '@/lib/types';
 type NavIconName =
     | 'feed'
     | 'camera'
-    | 'batch'
+    // | 'batch'
     | 'date'
     | 'events'
     | 'freedom'
@@ -37,15 +37,25 @@ const NAV_ROLE_CACHE_KEY = 'campus_gallery_nav_role';
 const NAV_USER_CACHE_KEY = 'campus_gallery_nav_user_id';
 const THEME_CACHE_KEY = 'campus_gallery_theme_mode';
 const DEFAULT_AVATAR_URL = '/avatar-default.svg';
-const LIGHT_BODY_CLASSES = ['from-amber-50', 'via-cyan-50', 'to-blue-100', 'text-slate-900'];
-const DARK_BODY_CLASSES = ['from-slate-950', 'via-slate-900', 'to-slate-800', 'text-slate-100'];
+const LIGHT_BODY_CLASSES = [
+    'from-amber-50',
+    'via-cyan-50',
+    'to-blue-100',
+    'text-slate-900',
+];
+const DARK_BODY_CLASSES = [
+    'from-slate-950',
+    'via-slate-900',
+    'to-slate-800',
+    'text-slate-100',
+];
 
 type ThemeMode = 'light' | 'dark';
 
 const links = [
     { href: '/feed', label: 'Feed', icon: 'feed' },
     { href: '/camera', label: 'Camera', icon: 'camera' },
-    { href: '/camera/multi', label: 'Batch', icon: 'batch' },
+    // { href: '/camera/multi', label: 'Batch', icon: 'batch' },
     { href: '/gallery/date', label: 'Date Folders', icon: 'date' },
     { href: '/gallery/events', label: 'Events', icon: 'events' },
     { href: '/freedom-wall', label: 'Freedom Wall', icon: 'freedom' },
@@ -87,13 +97,7 @@ function NotificationBell({
     );
 }
 
-function Icon({
-    name,
-    active,
-}: {
-    name: NavIconName;
-    active: boolean;
-}) {
+function Icon({ name, active }: { name: NavIconName; active: boolean }) {
     const colorClass = active ? 'text-white' : 'text-slate-700';
 
     if (name === 'notifications') {
@@ -102,7 +106,16 @@ function Icon({
 
     if (name === 'feed') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <path d='M3 12h7V3H3zM14 21h7v-7h-7zM14 10h7V3h-7zM3 21h7v-4H3z' />
             </svg>
         );
@@ -110,25 +123,43 @@ function Icon({
 
     if (name === 'camera') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <path d='M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z' />
                 <circle cx='12' cy='13' r='4' />
             </svg>
         );
     }
 
-    if (name === 'batch') {
-        return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
-                <rect x='3' y='7' width='13' height='13' rx='2' />
-                <path d='M16 12h3a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-3' />
-            </svg>
-        );
-    }
+    // if (name === 'batch') {
+    //     return (
+    //         <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+    //             <rect x='3' y='7' width='13' height='13' rx='2' />
+    //             <path d='M16 12h3a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-3' />
+    //         </svg>
+    //     );
+    // }
 
     if (name === 'date') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <rect x='3' y='4' width='18' height='18' rx='2' />
                 <path d='M16 2v4M8 2v4M3 10h18' />
             </svg>
@@ -137,7 +168,16 @@ function Icon({
 
     if (name === 'events') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <path d='M7 21V9M17 21V5M7 9l10-4M7 13l10-4' />
             </svg>
         );
@@ -145,7 +185,16 @@ function Icon({
 
     if (name === 'freedom') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <path d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' />
             </svg>
         );
@@ -153,7 +202,16 @@ function Icon({
 
     if (name === 'incognito') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <path d='M3 12h3l2-5h8l2 5h3' />
                 <circle cx='9' cy='13' r='2' />
                 <circle cx='15' cy='13' r='2' />
@@ -164,7 +222,16 @@ function Icon({
 
     if (name === 'visitor') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <circle cx='12' cy='12' r='9' />
                 <path d='M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18' />
             </svg>
@@ -173,14 +240,32 @@ function Icon({
 
     if (name === 'reviews') {
         return (
-            <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
                 <path d='m12 3 2.7 5.5 6 .9-4.3 4.2 1 6-5.4-2.9-5.4 2.9 1-6L3.3 9.4l6-.9Z' />
             </svg>
         );
     }
 
     return (
-        <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={`h-5 w-5 ${colorClass}`}
+            fill='none'
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
             <path d='M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4z' />
             <path d='M9 12h6M12 9v6' />
         </svg>
@@ -193,7 +278,8 @@ function isLinkActive(pathname: string, href: string): boolean {
 }
 
 function normalizeRole(value: unknown): UserRole | null {
-    if (value === 'admin' || value === 'member' || value === 'visitor') return value;
+    if (value === 'admin' || value === 'member' || value === 'visitor')
+        return value;
     return null;
 }
 
@@ -225,14 +311,20 @@ function resolveInitialThemeMode(): ThemeMode {
     if (typeof window === 'undefined') return 'light';
     const cached = window.localStorage.getItem(THEME_CACHE_KEY);
     if (cached === 'dark' || cached === 'light') return cached;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light';
 }
 
 function applyBodyTheme(mode: ThemeMode): void {
     if (typeof document === 'undefined') return;
     const body = document.body;
-    body.classList.remove(...(mode === 'dark' ? LIGHT_BODY_CLASSES : DARK_BODY_CLASSES));
-    body.classList.add(...(mode === 'dark' ? DARK_BODY_CLASSES : LIGHT_BODY_CLASSES));
+    body.classList.remove(
+        ...(mode === 'dark' ? LIGHT_BODY_CLASSES : DARK_BODY_CLASSES),
+    );
+    body.classList.add(
+        ...(mode === 'dark' ? DARK_BODY_CLASSES : LIGHT_BODY_CLASSES),
+    );
     document.documentElement.classList.toggle('dark', mode === 'dark');
     document.documentElement.style.colorScheme = mode;
 }
@@ -275,9 +367,14 @@ export function MainNav() {
     const [userId, setUserId] = useState<string | null>(null);
     const [userAvatarUrl, setUserAvatarUrl] = useState(DEFAULT_AVATAR_URL);
     const [userDisplayName, setUserDisplayName] = useState('User');
-    const [themeMode, setThemeMode] = useState<ThemeMode>(() => resolveInitialThemeMode());
+    const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
+        resolveInitialThemeMode(),
+    );
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-    const [profileMenuPosition, setProfileMenuPosition] = useState({ top: 56, right: 12 });
+    const [profileMenuPosition, setProfileMenuPosition] = useState({
+        top: 56,
+        right: 12,
+    });
     const [unreadCount, setUnreadCount] = useState(0);
     const profileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
     const profileMenuPanelRef = useRef<HTMLDivElement | null>(null);
@@ -347,13 +444,19 @@ export function MainNav() {
                 setUserId(user.id);
                 setUserDisplayName(user.email?.split('@')[0] ?? 'User');
 
-                const metadataRole = normalizeRole(user.user_metadata?.role) ?? 'member';
+                const metadataRole =
+                    normalizeRole(user.user_metadata?.role) ?? 'member';
                 setRole((current) => current ?? metadataRole);
-                const [profile, unread] = await Promise.all([getCurrentUserProfile(), countUnreadNotifications()]);
+                const [profile, unread] = await Promise.all([
+                    getCurrentUserProfile(),
+                    countUnreadNotifications(),
+                ]);
                 if (!mounted) return;
                 const resolvedRole = profile?.role ?? metadataRole;
                 setRole(resolvedRole);
-                setUserDisplayName(profile?.name ?? user.email?.split('@')[0] ?? 'User');
+                setUserDisplayName(
+                    profile?.name ?? user.email?.split('@')[0] ?? 'User',
+                );
                 setUserAvatarUrl(profile?.avatarUrl || DEFAULT_AVATAR_URL);
                 setUnreadCount(unread);
                 cacheAuthSnapshot(resolvedRole, user.id);
@@ -411,7 +514,13 @@ export function MainNav() {
         }
         if (role === 'visitor') {
             return links.filter((link) =>
-                ['/camera', '/camera/multi', '/visitor-gallery', '/reviews', '/notifications'].includes(link.href),
+                [
+                    '/camera',
+                    '/camera/multi',
+                    '/visitor-gallery',
+                    '/reviews',
+                    '/notifications',
+                ].includes(link.href),
             );
         }
         if (role === 'member') {
@@ -441,13 +550,23 @@ export function MainNav() {
     return (
         <header className='sticky top-0 z-40 overflow-x-hidden border-b border-slate-300/70 bg-white/90 backdrop-blur'>
             <div className='mx-auto grid w-full max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 md:px-8'>
-                <Link href='/' className='shrink-0 text-lg font-bold tracking-tight'>
+                <Link
+                    href='/'
+                    className='shrink-0 text-lg font-bold tracking-tight'
+                >
                     Campus Gallery
                 </Link>
                 <nav className='hidden flex-1 flex-wrap items-center justify-center gap-2 md:flex'>
                     {visibleLinks.map((link) => {
                         const active = isLinkActive(pathname, link.href);
-                        return <NavIconLink key={link.href} link={link} active={active} unreadCount={unreadCount} />;
+                        return (
+                            <NavIconLink
+                                key={link.href}
+                                link={link}
+                                active={active}
+                                unreadCount={unreadCount}
+                            />
+                        );
                     })}
                 </nav>
                 <div className='flex items-center gap-2'>
@@ -456,7 +575,9 @@ export function MainNav() {
                             <button
                                 ref={profileMenuButtonRef}
                                 type='button'
-                                onClick={() => setProfileMenuOpen((current) => !current)}
+                                onClick={() =>
+                                    setProfileMenuOpen((current) => !current)
+                                }
                                 className='relative h-10 w-10 rounded-full ring-2 ring-cyan-200 transition hover:ring-cyan-300 focus:outline-none focus-visible:ring-cyan-400'
                                 aria-label='Open profile menu'
                                 aria-expanded={profileMenuOpen}
@@ -499,7 +620,14 @@ export function MainNav() {
             <nav className='mx-auto flex w-full max-w-7xl flex-wrap justify-center gap-2 overflow-x-hidden px-4 pb-3 md:hidden md:px-8'>
                 {visibleLinks.map((link) => {
                     const active = isLinkActive(pathname, link.href);
-                    return <NavIconLink key={link.href} link={link} active={active} unreadCount={unreadCount} />;
+                    return (
+                        <NavIconLink
+                            key={link.href}
+                            link={link}
+                            active={active}
+                            unreadCount={unreadCount}
+                        />
+                    );
                 })}
             </nav>
             {profileMenuOpen && userId && typeof document !== 'undefined'
@@ -527,7 +655,9 @@ export function MainNav() {
                               }}
                               className='block w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100'
                           >
-                              {themeMode === 'dark' ? 'Light mode' : 'Dark mode'}
+                              {themeMode === 'dark'
+                                  ? 'Light mode'
+                                  : 'Dark mode'}
                           </button>
                           <button
                               type='button'

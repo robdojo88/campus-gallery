@@ -1758,22 +1758,73 @@ export async function togglePostLike(postId: string): Promise<{ liked: boolean }
 }
 
 export async function fetchPostComments(postId: string): Promise<PostComment[]> {
-    const supabase = getSupabase();
-    const { data: rows, error } = await supabase
-        .from('comments')
-        .select('*')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true })
-        .returns<DbCommentRow[]>();
-    if (error) throw toAppError(error);
-    if (!rows || rows.length === 0) return [];
+    const all: PostComment[] = [];
+    const seenIds = new Set<string>();
+    let cursor: string | undefined = undefined;
+    let hasMore = true;
 
-    const userIds = [...new Set(rows.map((row) => row.user_id))];
+    while (hasMore) {
+        const page = await fetchPostCommentsPage(postId, {
+            limit: 50,
+            beforeCreatedAt: cursor,
+        });
+
+        for (const comment of page.items) {
+            if (seenIds.has(comment.id)) continue;
+            seenIds.add(comment.id);
+            all.push(comment);
+        }
+
+        hasMore = page.hasMore;
+        cursor = page.nextCursor;
+        if (!cursor) break;
+    }
+
+    return all;
+}
+
+export async function fetchPostCommentsPage(
+    postId: string,
+    input: {
+        limit?: number;
+        beforeCreatedAt?: string;
+    } = {},
+): Promise<{
+    items: PostComment[];
+    nextCursor?: string;
+    hasMore: boolean;
+}> {
+    const supabase = getSupabase();
+    const safeLimit = Math.max(1, Math.min(input.limit ?? 10, 100));
+    let query = supabase
+        .from('comments')
+        .select('id,post_id,user_id,content,created_at')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: false })
+        .limit(safeLimit + 1);
+
+    if (input.beforeCreatedAt) {
+        query = query.lt('created_at', input.beforeCreatedAt);
+    }
+
+    const { data: rows, error } = await query.returns<DbCommentRow[]>();
+    if (error) throw toAppError(error);
+    if (!rows || rows.length === 0) {
+        return {
+            items: [],
+            hasMore: false,
+        };
+    }
+
+    const hasMore = rows.length > safeLimit;
+    const pageRows = hasMore ? rows.slice(0, safeLimit) : rows;
+
+    const userIds = [...new Set(pageRows.map((row) => row.user_id))];
     const { data: users, error: usersError } = await supabase.from('users').select('*').in('id', userIds).returns<DbUser[]>();
     if (usersError) throw toAppError(usersError);
     const names = new Map((users ?? []).map((user) => [user.id, user.name]));
 
-    return rows.map((row) => ({
+    const items = pageRows.map((row) => ({
         id: row.id,
         postId: row.post_id,
         userId: row.user_id,
@@ -1781,6 +1832,13 @@ export async function fetchPostComments(postId: string): Promise<PostComment[]> 
         createdAt: row.created_at,
         authorName: names.get(row.user_id) ?? 'User',
     }));
+    const nextCursor = pageRows[pageRows.length - 1]?.created_at;
+
+    return {
+        items,
+        nextCursor,
+        hasMore,
+    };
 }
 
 export async function addPostComment(postId: string, content: string): Promise<void> {

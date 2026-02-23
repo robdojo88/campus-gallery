@@ -5,12 +5,50 @@ import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } fr
 import {
     addPostComment,
     fetchPostEngagement,
-    fetchPostComments,
+    fetchPostCommentsPage,
     getSessionUser,
     subscribeToPostEngagement,
     togglePostLike,
 } from '@/lib/supabase';
 import type { Post, PostComment } from '@/lib/types';
+
+const FALLBACK_AVATAR_URL = '/avatar-default.svg';
+const COMMENTS_INITIAL_LIMIT = 10;
+const COMMENTS_PAGE_SIZE = 5;
+
+function HeartIcon({ filled = false, className = 'h-4 w-4' }: { filled?: boolean; className?: string }) {
+    return (
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={className}
+            fill={filled ? 'currentColor' : 'none'}
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
+            <path d='m12 20.5-1.1-1C5.7 14.8 2 11.5 2 7.4 2 4.2 4.5 2 7.4 2c1.9 0 3.8.9 4.9 2.4C13.5 2.9 15.4 2 17.3 2 20.2 2 22.7 4.2 22.7 7.4c0 4.1-3.7 7.4-8.9 12.1z' />
+        </svg>
+    );
+}
+
+function CommentIcon({ className = 'h-4 w-4' }: { className?: string }) {
+    return (
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={className}
+            fill='none'
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
+            <path d='M21 11.5a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6.5A8.5 8.5 0 1 1 21 11.5Z' />
+        </svg>
+    );
+}
 
 function PostImageGrid({
     images,
@@ -205,6 +243,8 @@ function Lightbox({
 
 export function PostCard({ post }: { post: Post }) {
     const author = post.author;
+    const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
+    const postedAt = new Date(post.createdAt).toLocaleString();
     const [liked, setLiked] = useState(false);
     const [likesCount, setLikesCount] = useState(post.likes);
     const [commentsCount, setCommentsCount] = useState(post.comments);
@@ -215,6 +255,13 @@ export function PostCard({ post }: { post: Post }) {
     const [canInteract, setCanInteract] = useState(false);
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
+    const [commentsLoading, setCommentsLoading] = useState(false);
+    const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
+    const [commentsCursor, setCommentsCursor] = useState<string | undefined>(undefined);
+    const [commentsHasMore, setCommentsHasMore] = useState(false);
+    const commentsContainerRef = useRef<HTMLDivElement | null>(null);
+    const commentsAnchorRef = useRef<HTMLDivElement | null>(null);
+    const loadedCommentsCountRef = useRef(0);
 
     const images = useMemo(() => (post.images.length > 0 ? post.images : [post.imageUrl]), [post.imageUrl, post.images]);
 
@@ -224,6 +271,60 @@ export function PostCard({ post }: { post: Post }) {
         setCommentsCount(engagement.commentsCount);
         setLiked(engagement.likedByCurrentUser);
     }, [post.id]);
+
+    useEffect(() => {
+        loadedCommentsCountRef.current = comments.length;
+    }, [comments]);
+
+    const loadInitialComments = useCallback(async () => {
+        setCommentsLoading(true);
+        try {
+            const page = await fetchPostCommentsPage(post.id, {
+                limit: COMMENTS_INITIAL_LIMIT,
+            });
+            setComments(page.items);
+            setCommentsCursor(page.nextCursor);
+            setCommentsHasMore(page.hasMore);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to load comments.';
+            setStatus(message);
+        } finally {
+            setCommentsLoading(false);
+        }
+    }, [post.id]);
+
+    const refreshLoadedComments = useCallback(async () => {
+        const loadedCount = Math.max(COMMENTS_INITIAL_LIMIT, loadedCommentsCountRef.current || COMMENTS_INITIAL_LIMIT);
+        const page = await fetchPostCommentsPage(post.id, {
+            limit: loadedCount,
+        });
+        setComments(page.items);
+        setCommentsCursor(page.nextCursor);
+        setCommentsHasMore(page.hasMore);
+    }, [post.id]);
+
+    const loadMoreComments = useCallback(async () => {
+        if (!showComments || commentsLoadingMore || !commentsHasMore || !commentsCursor) return;
+        setCommentsLoadingMore(true);
+        try {
+            const page = await fetchPostCommentsPage(post.id, {
+                limit: COMMENTS_PAGE_SIZE,
+                beforeCreatedAt: commentsCursor,
+            });
+            setComments((prev) => {
+                const existingIds = new Set(prev.map((comment) => comment.id));
+                const next = page.items.filter((comment) => !existingIds.has(comment.id));
+                return [...prev, ...next];
+            });
+            setCommentsCursor(page.nextCursor);
+            setCommentsHasMore(page.hasMore);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to load more comments.';
+            setStatus(message);
+        } finally {
+            setCommentsLoadingMore(false);
+        }
+    }, [commentsCursor, commentsHasMore, commentsLoadingMore, post.id, showComments]);
 
     useEffect(() => {
         let mounted = true;
@@ -255,10 +356,7 @@ export function PostCard({ post }: { post: Post }) {
                 setStatus(message);
             });
             if (showComments) {
-                void fetchPostComments(post.id)
-                    .then((rows) => {
-                        setComments(rows);
-                    })
+                void refreshLoadedComments()
                     .catch((error: unknown) => {
                         const message = error instanceof Error ? error.message : 'Failed to refresh comments.';
                         setStatus(message);
@@ -270,26 +368,31 @@ export function PostCard({ post }: { post: Post }) {
             mounted = false;
             unsubscribe();
         };
-    }, [post.id, refreshEngagement, showComments]);
+    }, [post.id, refreshEngagement, refreshLoadedComments, showComments]);
 
     useEffect(() => {
-        let cancelled = false;
         if (!showComments) return;
-        fetchPostComments(post.id)
-            .then((rows) => {
-                if (cancelled) return;
-                setComments(rows);
-                setCommentsCount(rows.length);
-            })
-            .catch((error: unknown) => {
-                if (cancelled) return;
-                const message = error instanceof Error ? error.message : 'Failed to load comments.';
-                setStatus(message);
-            });
+        void loadInitialComments();
+    }, [loadInitialComments, showComments]);
+
+    useEffect(() => {
+        if (!showComments || !commentsHasMore || !commentsContainerRef.current || !commentsAnchorRef.current) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    void loadMoreComments();
+                }
+            },
+            {
+                root: commentsContainerRef.current,
+                rootMargin: '120px 0px 120px 0px',
+            },
+        );
+        observer.observe(commentsAnchorRef.current);
         return () => {
-            cancelled = true;
+            observer.disconnect();
         };
-    }, [showComments, post.id]);
+    }, [commentsHasMore, loadMoreComments, showComments]);
 
     async function onToggleLike() {
         if (!canInteract) {
@@ -315,9 +418,8 @@ export function PostCard({ post }: { post: Post }) {
             await addPostComment(post.id, commentInput);
             setCommentInput('');
             await refreshEngagement();
-            const rows = await fetchPostComments(post.id);
-            setComments(rows);
             setShowComments(true);
+            await loadInitialComments();
             setStatus('');
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to add comment.';
@@ -343,58 +445,88 @@ export function PostCard({ post }: { post: Post }) {
 
     return (
         <article className='flex min-h-[90svh] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:min-h-[90vh]'>
+            <div className='p-4 md:p-5'>
+                <div className='flex items-center gap-3'>
+                    <button type='button' onClick={() => openLightbox(0)} className='h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={avatarUrl} alt={author?.name ?? 'User avatar'} className='h-full w-full object-cover' />
+                    </button>
+                    <div className='min-w-0'>
+                        <p className='truncate text-sm font-semibold text-slate-900'>{author?.name ?? 'Unknown'}</p>
+                        <p className='text-xs text-slate-500'>{postedAt}</p>
+                    </div>
+                </div>
+                {post.caption ? <p className='mt-3 text-sm text-slate-700'>{post.caption}</p> : null}
+            </div>
             <PostImageGrid images={images} onOpen={openLightbox} />
             <div className='space-y-3 p-4 md:p-5'>
-                <div className='flex items-center justify-between gap-3'>
-                    <div>
-                        <p className='text-sm font-semibold text-slate-800'>{author?.name ?? 'Unknown'}</p>
-                        <p className='text-xs text-slate-500'>{new Date(post.createdAt).toLocaleString()}</p>
+                <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
+                    <div className='inline-flex items-center gap-1.5'>
+                        <HeartIcon filled className='h-4 w-4 text-rose-500' />
+                        <span>{likesCount}</span>
                     </div>
-                    <span className='rounded-full bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-700'>
-                        {post.visibility}
-                    </span>
+                    <div className='inline-flex items-center gap-1.5'>
+                        <CommentIcon className='h-4 w-4 text-slate-500' />
+                        <span>{commentsCount}</span>
+                    </div>
                 </div>
-                {post.caption ? <p className='text-sm text-slate-700'>{post.caption}</p> : null}
-                <div className='flex flex-wrap gap-2 text-xs text-slate-600'>
-                    <span className='rounded-full bg-slate-100 px-3 py-1'>{likesCount} likes</span>
-                    <span className='rounded-full bg-slate-100 px-3 py-1'>{commentsCount} comments</span>
-                </div>
-                <div className='flex flex-wrap gap-2'>
+                <div className='grid grid-cols-2 gap-2'>
                     <button
                         type='button'
                         onClick={() => void onToggleLike()}
-                        className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
-                            liked ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-700'
+                        className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                            liked ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                         }`}
                     >
-                        {liked ? 'Liked' : 'Like'}
+                        <HeartIcon filled={liked} className={`h-4 w-4 ${liked ? 'text-rose-600' : 'text-slate-500'}`} />
+                        <span>Like</span>
                     </button>
                     <button
                         type='button'
                         onClick={() => setShowComments((prev) => !prev)}
-                        className='rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700'
+                        className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                            showComments ? 'border-cyan-200 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
                     >
-                        {showComments ? 'Hide Comments' : 'Comments'}
+                        <CommentIcon className={`h-4 w-4 ${showComments ? 'text-cyan-700' : 'text-slate-500'}`} />
+                        <span>Comment</span>
                     </button>
                 </div>
-                <div className='flex gap-2'>
+                <form
+                    className='flex gap-2'
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        void onAddComment();
+                    }}
+                >
                     <input
                         value={commentInput}
                         onChange={(event) => setCommentInput(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key !== 'Enter') return;
+                            if (event.nativeEvent.isComposing) return;
+                            event.preventDefault();
+                            void onAddComment();
+                        }}
                         placeholder='Write a comment'
                         className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
                     />
                     <button
-                        type='button'
-                        onClick={() => void onAddComment()}
+                        type='submit'
                         className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700'
                     >
                         Send
                     </button>
-                </div>
+                </form>
                 {showComments ? (
-                    <div className='space-y-2 rounded-2xl bg-slate-50 p-3'>
-                        {comments.length === 0 ? (
+                    <div ref={commentsContainerRef} className='max-h-72 space-y-2 overflow-y-auto rounded-2xl bg-slate-50 p-3'>
+                        {commentsLoading ? (
+                            <div className='space-y-2'>
+                                <div className='h-9 w-full animate-pulse rounded-xl bg-slate-200' />
+                                <div className='h-9 w-5/6 animate-pulse rounded-xl bg-slate-200' />
+                                <div className='h-9 w-2/3 animate-pulse rounded-xl bg-slate-200' />
+                            </div>
+                        ) : comments.length === 0 ? (
                             <p className='text-xs text-slate-500'>No comments yet.</p>
                         ) : (
                             comments.map((comment) => (
@@ -404,6 +536,17 @@ export function PostCard({ post }: { post: Post }) {
                                 </div>
                             ))
                         )}
+                        {commentsHasMore ? <div ref={commentsAnchorRef} className='h-2 w-full' aria-hidden='true' /> : null}
+                        {commentsLoadingMore ? <p className='text-center text-xs text-slate-500'>Loading more comments...</p> : null}
+                        {commentsHasMore && !commentsLoadingMore ? (
+                            <button
+                                type='button'
+                                onClick={() => void loadMoreComments()}
+                                className='mx-auto block rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                            >
+                                Load more comments
+                            </button>
+                        ) : null}
                     </div>
                 ) : null}
                 {status ? <p className='text-xs text-slate-500'>{status}</p> : null}
