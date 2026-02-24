@@ -52,7 +52,7 @@ export default function AdminAnalyticsPage() {
                         <p className='mt-2 text-3xl font-bold'>{stats.visitorPosts}</p>
                     </article>
                     <article className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
-                        <p className='text-xs uppercase tracking-[0.18em] text-slate-500'>Approved Reviews</p>
+                        <p className='text-xs uppercase tracking-[0.18em] text-slate-500'>Approved Feedback</p>
                         <p className='mt-2 text-3xl font-bold'>{stats.approvedReviews}</p>
                     </article>
                 </section>

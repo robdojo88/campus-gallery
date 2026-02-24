@@ -20,7 +20,7 @@ const sidebarLinks: SidebarLink[] = [
     { href: '/freedom-wall', label: 'Freedom Wall', hint: 'Open discussions' },
     { href: '/incognito', label: 'Incognito', hint: 'Anonymous space' },
     { href: '/visitor-gallery', label: 'Visitor', hint: 'Guest captures' },
-    { href: '/reviews', label: 'Reviews', hint: 'Campus feedback' },
+    { href: '/reviews', label: 'Visitor Feedback', hint: 'Guest feedback' },
     { href: '/notifications', label: 'Notifications', hint: 'Realtime activity' },
 ];
 

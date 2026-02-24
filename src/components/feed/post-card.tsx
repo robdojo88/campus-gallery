@@ -16,6 +16,44 @@ const FALLBACK_AVATAR_URL = '/avatar-default.svg';
 const COMMENTS_INITIAL_LIMIT = 10;
 const COMMENTS_PAGE_SIZE = 5;
 
+function formatFeedTimestamp(createdAt: string): string {
+    const date = new Date(createdAt);
+    if (Number.isNaN(date.getTime())) return '';
+
+    const now = new Date();
+    const diffMs = Math.max(0, now.getTime() - date.getTime());
+    const hourMs = 60 * 60 * 1000;
+    const dayMs = 24 * hourMs;
+
+    if (diffMs < dayMs) {
+        const hours = Math.max(1, Math.floor(diffMs / hourMs));
+        return `${hours}h`;
+    }
+
+    const days = Math.floor(diffMs / dayMs);
+    if (days <= 7) {
+        return `${days}d`;
+    }
+
+    if (date.getFullYear() !== now.getFullYear()) {
+        return date.toLocaleDateString(undefined, {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+        });
+    }
+
+    const dateLabel = date.toLocaleDateString(undefined, {
+        month: 'long',
+        day: 'numeric',
+    });
+    const timeLabel = date.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+    return `${dateLabel} at ${timeLabel}`;
+}
+
 function HeartIcon({ filled = false, className = 'h-4 w-4' }: { filled?: boolean; className?: string }) {
     return (
         <svg
@@ -244,7 +282,8 @@ function Lightbox({
 export function PostCard({ post }: { post: Post }) {
     const author = post.author;
     const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
-    const postedAt = new Date(post.createdAt).toLocaleString();
+    const postedAt = formatFeedTimestamp(post.createdAt);
+    const postMeta = post.eventName ? `${postedAt} • ${post.eventName}` : postedAt;
     const [liked, setLiked] = useState(false);
     const [likesCount, setLikesCount] = useState(post.likes);
     const [commentsCount, setCommentsCount] = useState(post.comments);
@@ -453,7 +492,7 @@ export function PostCard({ post }: { post: Post }) {
                     </button>
                     <div className='min-w-0'>
                         <p className='truncate text-sm font-semibold text-slate-900'>{author?.name ?? 'Unknown'}</p>
-                        <p className='text-xs text-slate-500'>{postedAt}</p>
+                        <p className='text-xs text-slate-500'>{postMeta}</p>
                     </div>
                 </div>
                 {post.caption ? <p className='mt-3 text-sm text-slate-700'>{post.caption}</p> : null}

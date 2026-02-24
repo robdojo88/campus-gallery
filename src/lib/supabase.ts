@@ -26,6 +26,7 @@ type DbUser = {
     email: string;
     role: UserRole;
     avatar_url: string | null;
+    incognito_alias: string | null;
     created_at: string;
 };
 type DbSearchUserRow = Pick<DbUser, 'id' | 'name' | 'email' | 'role' | 'avatar_url'>;
@@ -128,6 +129,8 @@ type DbReview = {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const DEFAULT_AVATAR_URL = '/avatar-default.svg';
+const INCOGNITO_ALIAS_PATTERN = /^[A-Za-z0-9._-]{3,24}$/;
+const INCOGNITO_ALIAS_RULES = 'Incognito alias must be 3-24 characters and use letters, numbers, dot, underscore, or hyphen.';
 
 let browserClient: SupabaseClient | null = null;
 let sessionRecoveryPromise: Promise<void> | null = null;
@@ -165,8 +168,46 @@ function toNonEmptyString(value: unknown): string | null {
     return trimmed ? trimmed : null;
 }
 
+function getNotificationDataString(
+    data: Record<string, unknown> | null | undefined,
+    key: string,
+): string | undefined {
+    const value = data?.[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 function resolveAvatarUrl(value: string | null | undefined): string {
     return toNonEmptyString(value) ?? DEFAULT_AVATAR_URL;
+}
+
+function parseIncognitoAlias(value: unknown): string | null {
+    const alias = toNonEmptyString(value);
+    if (!alias) return null;
+    return INCOGNITO_ALIAS_PATTERN.test(alias) ? alias : null;
+}
+
+function requireValidIncognitoAlias(value: string): string {
+    const alias = value.trim();
+    if (!alias) {
+        throw new Error('Incognito alias is required for members.');
+    }
+    if (!INCOGNITO_ALIAS_PATTERN.test(alias)) {
+        throw new Error(INCOGNITO_ALIAS_RULES);
+    }
+    return alias;
+}
+
+function resolveIncognitoDisplayAlias(input: {
+    role?: UserRole;
+    incognitoAlias?: string | null;
+}): string {
+    if (input.role === 'member') {
+        return parseIncognitoAlias(input.incognitoAlias) ?? 'Anonymous';
+    }
+    if (input.role === 'admin') {
+        return 'Admin';
+    }
+    return 'Anonymous';
 }
 
 function getAvatarFromAuthUser(user: User): string | null {
@@ -204,6 +245,7 @@ function mapUser(dbUser: DbUser) {
         email: dbUser.email,
         role: dbUser.role,
         avatarUrl: resolveAvatarUrl(dbUser.avatar_url),
+        incognitoAlias: parseIncognitoAlias(dbUser.incognito_alias) ?? undefined,
         createdAt: dbUser.created_at,
     };
 }
@@ -352,6 +394,29 @@ function isPermissionDeniedError(error: unknown): boolean {
             ? (error as { message: string }).message.toLowerCase()
             : '';
     return code === '42501' || message.includes('permission denied') || message.includes('new row violates row-level security');
+}
+
+function isUniqueViolationError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const code =
+        'code' in error && typeof (error as { code?: unknown }).code === 'string'
+            ? (error as { code: string }).code
+            : '';
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message.toLowerCase()
+            : '';
+    return code === '23505' || message.includes('duplicate key value') || message.includes('unique constraint');
+}
+
+function isIncognitoAliasConflictError(error: unknown): boolean {
+    if (!isUniqueViolationError(error)) return false;
+    if (!error || typeof error !== 'object') return false;
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message.toLowerCase()
+            : '';
+    return message.includes('incognito_alias') || message.includes('users_incognito_alias_lower_unique');
 }
 
 function isFreedomCommentPolicyRecursionError(error: unknown): boolean {
@@ -516,18 +581,23 @@ export async function ensureUserProfile(user: User): Promise<void> {
             ? user.user_metadata.role
             : 'member';
     const metadataAvatarUrl = getAvatarFromAuthUser(user);
+    const metadataAlias =
+        parseIncognitoAlias(user.user_metadata?.incognito_alias) ??
+        parseIncognitoAlias(user.user_metadata?.incognitoAlias);
     const { data: existingProfile, error: existingProfileError } = await supabase
         .from('users')
-        .select('avatar_url')
+        .select('avatar_url,incognito_alias')
         .eq('id', user.id)
-        .maybeSingle<{ avatar_url: string | null }>();
+        .maybeSingle<{ avatar_url: string | null; incognito_alias: string | null }>();
     if (existingProfileError) throw toAppError(existingProfileError);
 
     const existingAvatarUrl = toNonEmptyString(existingProfile?.avatar_url);
+    const existingAlias = parseIncognitoAlias(existingProfile?.incognito_alias);
     const avatarUrl =
         existingAvatarUrl && existingAvatarUrl !== DEFAULT_AVATAR_URL
             ? existingAvatarUrl
             : resolveAvatarUrl(metadataAvatarUrl ?? existingAvatarUrl);
+    const incognitoAlias = existingAlias ?? metadataAlias;
 
     const { error } = await supabase.from('users').upsert({
         id: user.id,
@@ -535,8 +605,14 @@ export async function ensureUserProfile(user: User): Promise<void> {
         name: metadataName || user.email?.split('@')[0] || 'Campus User',
         role: metadataRole,
         avatar_url: avatarUrl,
+        incognito_alias: incognitoAlias,
     });
-    if (error) throw toAppError(error);
+    if (error) {
+        if (isIncognitoAliasConflictError(error)) {
+            throw new Error('This incognito alias is already in use. Pick another alias.');
+        }
+        throw toAppError(error);
+    }
 }
 
 export async function uploadProfileAvatar(file: File): Promise<string> {
@@ -574,9 +650,11 @@ export async function signUpWithEmail(input: {
     email: string;
     password: string;
     role: 'member' | 'visitor';
+    incognitoAlias?: string;
 }) {
     const supabase = getSupabase();
     const email = normalizeEmail(input.email);
+    const incognitoAlias = input.role === 'member' ? requireValidIncognitoAlias(input.incognitoAlias ?? '') : null;
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
     const { data, error } = await supabase.auth.signUp({
         email,
@@ -585,15 +663,67 @@ export async function signUpWithEmail(input: {
             data: {
                 name: input.name,
                 role: input.role,
+                ...(incognitoAlias ? { incognito_alias: incognitoAlias } : {}),
             },
             emailRedirectTo: redirectTo,
         },
     });
-    if (error) throw toAppError(error);
+    if (error) {
+        if (isIncognitoAliasConflictError(error)) {
+            throw new Error('This incognito alias is already in use. Pick another alias.');
+        }
+        throw toAppError(error);
+    }
     if (data.user && data.session) {
         await ensureUserProfile(data.user);
     }
     return data;
+}
+
+export async function setCurrentUserIncognitoAlias(aliasInput: string): Promise<string> {
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) throw new Error('You must be logged in.');
+
+    const alias = requireValidIncognitoAlias(aliasInput);
+    const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('role,incognito_alias')
+        .eq('id', user.id)
+        .single<{ role: UserRole; incognito_alias: string | null }>();
+    if (profileError) throw toAppError(profileError);
+
+    if (profile.role !== 'member') {
+        throw new Error('Only campus members can set an incognito alias.');
+    }
+    if (parseIncognitoAlias(profile.incognito_alias)) {
+        throw new Error('Incognito alias is already set and cannot be changed. Contact admin for changes.');
+    }
+
+    const { error: updateError } = await supabase
+        .from('users')
+        .update({ incognito_alias: alias })
+        .eq('id', user.id)
+        .is('incognito_alias', null);
+    if (updateError) {
+        if (isIncognitoAliasConflictError(updateError)) {
+            throw new Error('This incognito alias is already in use. Pick another alias.');
+        }
+        throw toAppError(updateError);
+    }
+
+    const { data: updatedProfile, error: updatedProfileError } = await supabase
+        .from('users')
+        .select('incognito_alias')
+        .eq('id', user.id)
+        .single<{ incognito_alias: string | null }>();
+    if (updatedProfileError) throw toAppError(updatedProfileError);
+
+    const savedAlias = parseIncognitoAlias(updatedProfile.incognito_alias);
+    if (!savedAlias) {
+        throw new Error('Incognito alias is already set and cannot be changed. Contact admin for changes.');
+    }
+    return savedAlias;
 }
 
 export async function resendConfirmationEmail(email: string): Promise<void> {
@@ -1330,6 +1460,7 @@ export async function fetchIncognitoPosts(): Promise<
         id: string;
         content: string;
         createdAt: string;
+        authorAlias: string;
         authorId?: string;
         likes: number;
         comments: number;
@@ -1349,8 +1480,28 @@ export async function fetchIncognitoPosts(): Promise<
     if (!rows || rows.length === 0) return [];
 
     const postIds = rows.map((row) => row.id);
+    const userIds = [...new Set(rows.map((row) => row.user_id))];
     let likesRows: DbIncognitoLike[] = [];
     let commentsRows: DbIncognitoCommentRow[] = [];
+    const aliasByUserId = new Map<string, string>();
+
+    if (userIds.length > 0) {
+        const { data: users, error: usersError } = await supabase
+            .from('users')
+            .select('id,role,incognito_alias')
+            .in('id', userIds)
+            .returns<Array<{ id: string; role: UserRole; incognito_alias: string | null }>>();
+        if (usersError) throw toAppError(usersError);
+        (users ?? []).forEach((dbUser) => {
+            aliasByUserId.set(
+                dbUser.id,
+                resolveIncognitoDisplayAlias({
+                    role: dbUser.role,
+                    incognitoAlias: dbUser.incognito_alias,
+                }),
+            );
+        });
+    }
 
     const { data: likesData, error: likesError } = await supabase
         .from('incognito_likes')
@@ -1388,6 +1539,7 @@ export async function fetchIncognitoPosts(): Promise<
         id: row.id,
         content: row.content,
         createdAt: row.created_at,
+        authorAlias: aliasByUserId.get(row.user_id) ?? 'Anonymous',
         authorId: isAdmin ? row.user_id : undefined,
         likes: likeCounts[row.id] ?? 0,
         comments: commentCounts[row.id] ?? 0,
@@ -1470,7 +1622,15 @@ export async function fetchIncognitoPostComments(postId: string): Promise<PostCo
     const userIds = [...new Set(rows.map((row) => row.user_id))];
     const { data: users, error: usersError } = await supabase.from('users').select('*').in('id', userIds).returns<DbUser[]>();
     if (usersError) throw toAppError(usersError);
-    const names = new Map((users ?? []).map((dbUser) => [dbUser.id, dbUser.name]));
+    const aliases = new Map(
+        (users ?? []).map((dbUser) => [
+            dbUser.id,
+            resolveIncognitoDisplayAlias({
+                role: dbUser.role,
+                incognitoAlias: dbUser.incognito_alias,
+            }),
+        ]),
+    );
 
     return rows.map((row) => ({
         id: row.id,
@@ -1478,7 +1638,7 @@ export async function fetchIncognitoPostComments(postId: string): Promise<PostCo
         userId: row.user_id,
         content: row.content,
         createdAt: row.created_at,
-        authorName: names.get(row.user_id) ?? 'User',
+        authorName: aliases.get(row.user_id) ?? 'Anonymous',
     }));
 }
 
@@ -1523,23 +1683,126 @@ async function mapNotificationsRows(rows: DbNotification[]): Promise<AppNotifica
     const supabase = getSupabase();
     if (!rows || rows.length === 0) return [];
 
-    const actorIds = [...new Set(rows.map((row) => row.actor_user_id).filter((value): value is string => Boolean(value)))];
-    const actorNameById = new Map<string, string>();
+    const normalizedRows = rows.map((row) => ({
+        row,
+        type: normalizeNotificationType(row.type),
+        data: row.data ?? {},
+    }));
+
+    const actorIds = [
+        ...new Set(
+            normalizedRows
+                .map(({ row }) => row.actor_user_id)
+                .filter((value): value is string => Boolean(value)),
+        ),
+    ];
+    const actorById = new Map<
+        string,
+        { name: string; avatarUrl: string; incognitoAlias: string }
+    >();
     if (actorIds.length > 0) {
         const { data: users, error: usersError } = await supabase
             .from('users')
-            .select('id,name')
+            .select('id,name,avatar_url,role,incognito_alias')
             .in('id', actorIds)
-            .returns<Array<{ id: string; name: string }>>();
+            .returns<Array<{ id: string; name: string; avatar_url: string | null; role: UserRole; incognito_alias: string | null }>>();
         if (usersError) throw toAppError(usersError);
         (users ?? []).forEach((row) => {
-            actorNameById.set(row.id, row.name);
+            actorById.set(row.id, {
+                name: row.name,
+                avatarUrl: resolveAvatarUrl(row.avatar_url),
+                incognitoAlias: resolveIncognitoDisplayAlias({
+                    role: row.role,
+                    incognitoAlias: row.incognito_alias,
+                }),
+            });
         });
     }
 
-    return rows.map((row) => {
-        const type = normalizeNotificationType(row.type);
+    const feedPostIds = [
+        ...new Set(
+            normalizedRows
+                .filter(
+                    ({ type }) =>
+                        type === 'feed_like' || type === 'feed_comment',
+                )
+                .map(({ data }) => getNotificationDataString(data, 'postId'))
+                .filter((value): value is string => Boolean(value)),
+        ),
+    ];
+    const freedomPostIds = [
+        ...new Set(
+            normalizedRows
+                .filter(
+                    ({ type }) =>
+                        type === 'freedom_like' || type === 'freedom_comment',
+                )
+                .map(({ data }) =>
+                    getNotificationDataString(data, 'freedomPostId'),
+                )
+                .filter((value): value is string => Boolean(value)),
+        ),
+    ];
+    const incognitoPostIds = [
+        ...new Set(
+            normalizedRows
+                .filter(
+                    ({ type }) =>
+                        type === 'incognito_like' ||
+                        type === 'incognito_comment',
+                )
+                .map(({ data }) =>
+                    getNotificationDataString(data, 'incognitoPostId'),
+                )
+                .filter((value): value is string => Boolean(value)),
+        ),
+    ];
+
+    const feedCaptionById = new Map<string, string>();
+    if (feedPostIds.length > 0) {
+        const { data } = await supabase
+            .from('posts')
+            .select('id,caption')
+            .in('id', feedPostIds)
+            .returns<Array<{ id: string; caption: string | null }>>();
+        (data ?? []).forEach((post) => {
+            feedCaptionById.set(post.id, toNonEmptyString(post.caption) ?? 'none');
+        });
+    }
+
+    const freedomCaptionById = new Map<string, string>();
+    if (freedomPostIds.length > 0) {
+        const { data } = await supabase
+            .from('freedom_wall_posts')
+            .select('id,content')
+            .in('id', freedomPostIds)
+            .returns<Array<{ id: string; content: string | null }>>();
+        (data ?? []).forEach((post) => {
+            freedomCaptionById.set(
+                post.id,
+                toNonEmptyString(post.content) ?? 'none',
+            );
+        });
+    }
+
+    const incognitoCaptionById = new Map<string, string>();
+    if (incognitoPostIds.length > 0) {
+        const { data } = await supabase
+            .from('incognito_posts')
+            .select('id,content')
+            .in('id', incognitoPostIds)
+            .returns<Array<{ id: string; content: string | null }>>();
+        (data ?? []).forEach((post) => {
+            incognitoCaptionById.set(
+                post.id,
+                toNonEmptyString(post.content) ?? 'none',
+            );
+        });
+    }
+
+    return normalizedRows.map(({ row, type, data }) => {
         const isIncognitoNotification = type === 'incognito_like' || type === 'incognito_comment';
+        const actor = row.actor_user_id ? actorById.get(row.actor_user_id) : undefined;
 
         let title = row.title;
         let body = row.body;
@@ -1550,18 +1813,42 @@ async function mapNotificationsRows(rows: DbNotification[]): Promise<AppNotifica
                 : 'Someone commented on your anonymous post.';
         }
 
+        const mappedData: Record<string, unknown> = { ...data };
+        if (type === 'feed_like' || type === 'feed_comment') {
+            const postId = getNotificationDataString(data, 'postId');
+            mappedData.targetCaption =
+                (postId && feedCaptionById.get(postId)) ?? 'none';
+        } else if (type === 'freedom_like' || type === 'freedom_comment') {
+            const postId = getNotificationDataString(data, 'freedomPostId');
+            mappedData.targetCaption =
+                (postId && freedomCaptionById.get(postId)) ?? 'none';
+        } else if (
+            type === 'incognito_like' ||
+            type === 'incognito_comment'
+        ) {
+            const postId = getNotificationDataString(data, 'incognitoPostId');
+            mappedData.targetCaption =
+                (postId && incognitoCaptionById.get(postId)) ?? 'none';
+        }
+
         return {
             id: row.id,
             recipientUserId: row.recipient_user_id,
-            actorUserId: isIncognitoNotification ? undefined : row.actor_user_id ?? undefined,
+            actorUserId: row.actor_user_id ?? undefined,
             actorName:
+                !row.actor_user_id
+                    ? undefined
+                    : isIncognitoNotification
+                      ? actor?.incognitoAlias
+                      : actor?.name,
+            actorAvatarUrl:
                 isIncognitoNotification || !row.actor_user_id
                     ? undefined
-                    : actorNameById.get(row.actor_user_id),
+                    : actor?.avatarUrl,
             type,
             title,
             body,
-            data: row.data ?? {},
+            data: mappedData,
             readAt: row.read_at ?? undefined,
             createdAt: row.created_at,
         };
@@ -2183,14 +2470,17 @@ export async function fetchAdminStats() {
     };
 }
 
-export async function createReview(input: { rating: number; reviewText: string }): Promise<void> {
+export async function createReview(input: { reviewText: string }): Promise<void> {
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in.');
+    const cleaned = input.reviewText.trim();
+    if (!cleaned) throw new Error('Feedback cannot be empty.');
+
     const { error } = await supabase.from('reviews').insert({
         visitor_id: user.id,
-        rating: input.rating,
-        review_text: input.reviewText,
+        rating: 3,
+        review_text: cleaned,
     });
     if (error) throw toAppError(error);
 }

@@ -14,6 +14,78 @@ import {
 } from '@/lib/supabase';
 import type { PostComment } from '@/lib/types';
 
+function HeartIcon({ filled = false, className = 'h-4 w-4' }: { filled?: boolean; className?: string }) {
+    return (
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={className}
+            fill={filled ? 'currentColor' : 'none'}
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
+            <path d='m12 20.5-1.1-1C5.7 14.8 2 11.5 2 7.4 2 4.2 4.5 2 7.4 2c1.9 0 3.8.9 4.9 2.4C13.5 2.9 15.4 2 17.3 2 20.2 2 22.7 4.2 22.7 7.4c0 4.1-3.7 7.4-8.9 12.1z' />
+        </svg>
+    );
+}
+
+function CommentIcon({ className = 'h-4 w-4' }: { className?: string }) {
+    return (
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={className}
+            fill='none'
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
+            <path d='M21 11.5a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6.5A8.5 8.5 0 1 1 21 11.5Z' />
+        </svg>
+    );
+}
+
+function formatIncognitoTimestamp(createdAt: string): string {
+    const date = new Date(createdAt);
+    if (Number.isNaN(date.getTime())) return '';
+
+    const now = new Date();
+    const diffMs = Math.max(0, now.getTime() - date.getTime());
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+
+    if (diffMs < hourMs) {
+        const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
+        return `${minutes}m`;
+    }
+
+    if (diffMs < dayMs) {
+        const hours = Math.max(1, Math.floor(diffMs / hourMs));
+        return `${hours}h`;
+    }
+
+    const days = Math.floor(diffMs / dayMs);
+    if (days <= 7) {
+        return `${days}d`;
+    }
+
+    const showYear = date.getFullYear() !== now.getFullYear();
+    const dateLabel = date.toLocaleDateString(undefined, {
+        month: 'long',
+        day: 'numeric',
+        ...(showYear ? { year: 'numeric' } : {}),
+    });
+    const timeLabel = date.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+    return `${dateLabel} at ${timeLabel}`;
+}
+
 export default function IncognitoPage() {
     const [targetPostId, setTargetPostId] = useState('');
     const [content, setContent] = useState('');
@@ -209,28 +281,50 @@ export default function IncognitoPage() {
                             data-incognito-post-id={post.id}
                             className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
                         >
-                            <p className='text-sm font-semibold text-slate-800'>Anonymous</p>
+                            <div className='flex items-center justify-between gap-3'>
+                                <p className='text-sm font-semibold text-slate-800'>Anonymous</p>
+                                <p className='text-xs text-slate-500'>{formatIncognitoTimestamp(post.createdAt)}</p>
+                            </div>
                             {post.authorId ? <p className='text-xs text-slate-500'>Admin view: {post.authorId}</p> : null}
                             <p className='mt-2 text-sm text-slate-700'>{post.content}</p>
-                            <p className='mt-3 text-xs text-slate-500'>{new Date(post.createdAt).toLocaleString()}</p>
-                            <div className='mt-3 flex flex-wrap items-center gap-2'>
-                                <button
-                                    type='button'
-                                    onClick={() => void onToggleLike(post.id)}
-                                    disabled={busyPostId === post.id}
-                                    className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
-                                        post.likedByCurrentUser ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-700'
-                                    } disabled:cursor-not-allowed disabled:opacity-60`}
-                                >
-                                    {post.likedByCurrentUser ? 'Liked' : 'Like'} ({post.likes})
-                                </button>
-                                <button
-                                    type='button'
-                                    onClick={() => void toggleComments(post.id)}
-                                    className='rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700'
-                                >
-                                    {openCommentsByPost[post.id] ? 'Hide Comments' : 'Comments'} ({post.comments})
-                                </button>
+                            <div className='mt-3 space-y-3'>
+                                <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
+                                    <div className='inline-flex items-center gap-1.5'>
+                                        <HeartIcon filled className='h-4 w-4 text-rose-500' />
+                                        <span>{post.likes}</span>
+                                    </div>
+                                    <div className='inline-flex items-center gap-1.5'>
+                                        <CommentIcon className='h-4 w-4 text-slate-500' />
+                                        <span>{post.comments}</span>
+                                    </div>
+                                </div>
+                                <div className='grid grid-cols-2 gap-2'>
+                                    <button
+                                        type='button'
+                                        onClick={() => void onToggleLike(post.id)}
+                                        disabled={busyPostId === post.id}
+                                        className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                                            post.likedByCurrentUser
+                                                ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                                    >
+                                        <HeartIcon filled={post.likedByCurrentUser} className={`h-4 w-4 ${post.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`} />
+                                        <span>Like</span>
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => void toggleComments(post.id)}
+                                        className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                                            openCommentsByPost[post.id]
+                                                ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <CommentIcon className={`h-4 w-4 ${openCommentsByPost[post.id] ? 'text-cyan-700' : 'text-slate-500'}`} />
+                                        <span>{openCommentsByPost[post.id] ? 'Hide' : 'Comment'}</span>
+                                    </button>
+                                </div>
                             </div>
 
                             {openCommentsByPost[post.id] ? (
@@ -241,7 +335,7 @@ export default function IncognitoPage() {
                                         <div className='space-y-2'>
                                             {(commentsByPost[post.id] ?? []).map((comment) => (
                                                 <div key={comment.id} className='rounded-xl bg-slate-50 px-3 py-2 text-xs'>
-                                                    <p className='font-semibold text-slate-700'>{comment.authorName}</p>
+                                                    <p className='font-semibold text-slate-700'>Anonymous</p>
                                                     <p className='mt-1 text-slate-700'>{comment.content}</p>
                                                 </div>
                                             ))}

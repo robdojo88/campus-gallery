@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import {
     countUnreadNotifications,
@@ -56,7 +57,7 @@ const links = [
     { href: '/freedom-wall', label: 'Freedom Wall', icon: 'freedom' },
     { href: '/incognito', label: 'Incognito', icon: 'incognito' },
     { href: '/visitor-gallery', label: 'Visitor', icon: 'visitor' },
-    { href: '/reviews', label: 'Reviews', icon: 'reviews' },
+    { href: '/reviews', label: 'Visitor Feedback', icon: 'reviews' },
 ] satisfies NavLink[];
 
 function NotificationBell({
@@ -266,6 +267,15 @@ function isLinkActive(pathname: string, href: string): boolean {
     return pathname.startsWith(href);
 }
 
+function isMobilePrimaryLink(href: string): boolean {
+    return (
+        href === '/feed' ||
+        href === '/camera' ||
+        href === '/gallery/date' ||
+        href === '/freedom-wall'
+    );
+}
+
 function normalizeRole(value: unknown): UserRole | null {
     if (value === 'admin' || value === 'member' || value === 'visitor')
         return value;
@@ -321,9 +331,11 @@ function applyBodyTheme(mode: ThemeMode): void {
 function NavIconLink({
     link,
     active,
+    compact = false,
 }: {
     link: NavLink;
     active: boolean;
+    compact?: boolean;
 }) {
     return (
         <Link
@@ -331,14 +343,20 @@ function NavIconLink({
             href={link.href}
             aria-label={link.label}
             title={link.label}
-            className={`group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 ${
+            className={`group relative flex shrink-0 items-center justify-center border border-transparent transition-all duration-200 ${
+                compact ? 'h-9 w-9 rounded-lg' : 'h-11 w-11 rounded-xl'
+            } ${
                 active
                     ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
                     : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
             }`}
         >
             <Icon name={link.icon} active={active} />
-            <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+            <span
+                className={`pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100 ${
+                    compact ? 'hidden' : ''
+                }`}
+            >
                 {link.label}
             </span>
         </Link>
@@ -368,6 +386,7 @@ export function MainNav() {
         EMPTY_SEARCH_RESULTS,
     );
     const [searchStatus, setSearchStatus] = useState('');
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const profileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
     const profileMenuPanelRef = useRef<HTMLDivElement | null>(null);
     const searchWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -534,6 +553,25 @@ export function MainNav() {
     }, [searchOpen]);
 
     useEffect(() => {
+        if (!mobileMenuOpen) return;
+
+        function onKeyDown(event: KeyboardEvent) {
+            if (event.key === 'Escape') {
+                setMobileMenuOpen(false);
+            }
+        }
+
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [mobileMenuOpen]);
+
+    useEffect(() => {
+        setMobileMenuOpen(false);
+    }, [pathname]);
+
+    useEffect(() => {
         if (!searchOpen) return;
         const term = searchQuery.trim();
         if (term.length < 2) {
@@ -586,6 +624,25 @@ export function MainNav() {
         return links;
     }, [role]);
 
+    const mobilePrimaryLinks = useMemo(
+        () => centerLinks.filter((link) => isMobilePrimaryLink(link.href)),
+        [centerLinks],
+    );
+    const mobileOverflowLinks = useMemo(
+        () => centerLinks.filter((link) => !isMobilePrimaryLink(link.href)),
+        [centerLinks],
+    );
+    const mobileOverflowActive = useMemo(
+        () => mobileOverflowLinks.some((link) => isLinkActive(pathname, link.href)),
+        [mobileOverflowLinks, pathname],
+    );
+
+    useEffect(() => {
+        if (mobileOverflowLinks.length === 0) {
+            setMobileMenuOpen(false);
+        }
+    }, [mobileOverflowLinks.length]);
+
     async function onLogout() {
         await signOutUser();
         clearAuthSnapshot();
@@ -614,7 +671,7 @@ export function MainNav() {
 
     return (
         <header className='sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur'>
-            <div className='mx-auto flex w-full max-w-[1480px] items-center gap-3 px-3 py-2 md:px-6 lg:px-8'>
+            <div className='mx-auto hidden w-full max-w-[1480px] items-center gap-3 px-3 py-2 md:flex md:px-6 lg:px-8'>
                 <div className='flex min-w-0 items-center gap-3 md:w-[320px] lg:w-[360px]'>
                     <Link
                         href='/'
@@ -933,35 +990,185 @@ export function MainNav() {
                     )}
                 </div>
             </div>
-            <nav className='mx-auto flex w-full max-w-[1480px] flex-wrap justify-center gap-2 overflow-x-hidden border-t border-slate-200 px-3 py-2 md:hidden md:px-6 lg:px-8'>
-                {centerLinks.map((link) => {
+            <nav className='mx-auto flex w-full max-w-[1480px] items-center justify-between gap-1 overflow-hidden px-2 py-2 md:hidden md:px-6 lg:px-8'>
+                {mobileOverflowLinks.length > 0 ? (
+                    <button
+                        type='button'
+                        onClick={() => setMobileMenuOpen((current) => !current)}
+                        aria-label='Open more links'
+                        aria-expanded={mobileMenuOpen}
+                        className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
+                            mobileMenuOpen || mobileOverflowActive
+                                ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
+                                : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                        }`}
+                    >
+                        <svg
+                            viewBox='0 0 24 24'
+                            aria-hidden='true'
+                            className={`h-5 w-5 ${
+                                mobileMenuOpen || mobileOverflowActive
+                                    ? 'text-blue-600'
+                                    : 'text-slate-600'
+                            }`}
+                            fill='none'
+                            stroke='currentColor'
+                            strokeWidth='2'
+                            strokeLinecap='round'
+                            strokeLinejoin='round'
+                        >
+                            <path d='M4 7h16M4 12h16M4 17h16' />
+                        </svg>
+                        <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+                            More
+                        </span>
+                    </button>
+                ) : null}
+                <Link
+                    href='/'
+                    aria-label='Campus Gallery home'
+                    title='Campus Gallery'
+                    className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                >
+                    <span className='grid h-7 w-7 place-items-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-sm'>
+                        CG
+                    </span>
+                    <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+                        Home
+                    </span>
+                </Link>
+                {mobilePrimaryLinks.map((link) => {
                     const active = isLinkActive(pathname, link.href);
                     return (
                         <NavIconLink
                             key={link.href}
                             link={link}
                             active={active}
+                            compact
                         />
                     );
                 })}
                 {userId ? (
+                    <>
+                        <Link
+                            href='/notifications'
+                            aria-label='Notifications'
+                            title='Notifications'
+                            className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
+                                pathname.startsWith('/notifications')
+                                    ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
+                                    : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                            }`}
+                        >
+                            <NotificationBell
+                                active={pathname.startsWith('/notifications')}
+                                unreadCount={unreadCount}
+                            />
+                        </Link>
+                        <button
+                            ref={profileMenuButtonRef}
+                            type='button'
+                            onClick={() =>
+                                setProfileMenuOpen((current) => !current)
+                            }
+                            className='relative h-9 w-9 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
+                            aria-label='Open profile menu'
+                            aria-expanded={profileMenuOpen}
+                        >
+                            <Image
+                                src={userAvatarUrl}
+                                alt={`${userDisplayName} profile`}
+                                fill
+                                className='object-cover'
+                                sizes='36px'
+                            />
+                        </button>
+                    </>
+                ) : (
                     <Link
-                        href='/notifications'
-                        aria-label='Notifications'
-                        title='Notifications'
-                        className={`group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 ${
-                            pathname.startsWith('/notifications')
-                                ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
-                                : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
-                        }`}
+                        href='/login'
+                        className='shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100'
                     >
-                        <NotificationBell
-                            active={pathname.startsWith('/notifications')}
-                            unreadCount={unreadCount}
-                        />
+                        Login
                     </Link>
-                ) : null}
+                )}
             </nav>
+            <AnimatePresence>
+                {mobileMenuOpen && mobileOverflowLinks.length > 0 ? (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.18, ease: 'easeOut' }}
+                        className='fixed inset-0 z-[180] md:hidden'
+                    >
+                        <motion.button
+                            type='button'
+                            aria-label='Close menu'
+                            onClick={() => setMobileMenuOpen(false)}
+                            className='absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]'
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2, ease: 'easeOut' }}
+                        />
+                        <motion.aside
+                            initial={{ x: '-100%' }}
+                            animate={{ x: 0 }}
+                            exit={{ x: '-100%' }}
+                            transition={{
+                                type: 'spring',
+                                stiffness: 360,
+                                damping: 34,
+                                mass: 0.9,
+                            }}
+                            className='absolute left-0 top-0 flex h-[100dvh] w-[min(82vw,19rem)] flex-col border-r border-slate-200 bg-white shadow-2xl'
+                        >
+                            <div className='flex items-center justify-between border-b border-slate-200 px-4 py-4'>
+                                <p className='text-sm font-semibold text-slate-900'>
+                                    More links
+                                </p>
+                                <button
+                                    type='button'
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    aria-label='Close menu'
+                                    className='rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100'
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <nav className='space-y-1 p-3'>
+                                {mobileOverflowLinks.map((link) => {
+                                    const active = isLinkActive(
+                                        pathname,
+                                        link.href,
+                                    );
+                                    return (
+                                        <Link
+                                            key={`mobile-overflow-${link.href}`}
+                                            href={link.href}
+                                            onClick={() =>
+                                                setMobileMenuOpen(false)
+                                            }
+                                            className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition ${
+                                                active
+                                                    ? 'bg-blue-50 text-blue-700'
+                                                    : 'text-slate-700 hover:bg-slate-100'
+                                            }`}
+                                        >
+                                            <Icon
+                                                name={link.icon}
+                                                active={active}
+                                            />
+                                            <span>{link.label}</span>
+                                        </Link>
+                                    );
+                                })}
+                            </nav>
+                        </motion.aside>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
             {profileMenuOpen && userId && typeof document !== 'undefined'
                 ? createPortal(
                       <div

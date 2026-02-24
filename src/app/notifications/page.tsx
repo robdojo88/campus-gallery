@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,13 +13,33 @@ import {
     markNotificationRead,
     subscribeToNotifications,
 } from '@/lib/supabase';
-import type { AppNotification } from '@/lib/types';
+import type { AppNotification, NotificationType } from '@/lib/types';
 
 const PAGE_SIZE = 10;
+const ACTOR_AVATAR_FALLBACK = '/avatar-default.svg';
 
-function getDataString(data: Record<string, unknown>, key: string): string | undefined {
+type NotificationGroup = {
+    key: string;
+    notificationIds: string[];
+    type: NotificationType;
+    createdAt: string;
+    href?: string;
+    title: string;
+    body: string;
+    caption: string;
+    actorNames: string[];
+    actorCount: number;
+    actorAvatarUrl?: string;
+    isAnonymous: boolean;
+    unread: boolean;
+};
+
+function getDataString(
+    data: Record<string, unknown>,
+    key: string,
+): string | undefined {
     const value = data[key];
-    return typeof value === 'string' && value.trim() ? value : undefined;
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function getNotificationHref(item: AppNotification): string | undefined {
@@ -39,10 +60,121 @@ function getNotificationHref(item: AppNotification): string | undefined {
 
     if (item.type === 'event_created') {
         const eventId = getDataString(item.data, 'eventId');
-        if (eventId) return `/gallery/events?event=${encodeURIComponent(eventId)}`;
+        if (eventId) {
+            return `/gallery/events?event=${encodeURIComponent(eventId)}`;
+        }
     }
 
     return undefined;
+}
+
+function getNotificationGroupKey(item: AppNotification): string {
+    if (item.type === 'feed_like' || item.type === 'feed_comment') {
+        const postId = getDataString(item.data, 'postId');
+        if (postId) return `${item.type}:${postId}`;
+    }
+
+    if (item.type === 'freedom_like' || item.type === 'freedom_comment') {
+        const postId = getDataString(item.data, 'freedomPostId');
+        if (postId) return `${item.type}:${postId}`;
+    }
+
+    if (item.type === 'incognito_like' || item.type === 'incognito_comment') {
+        const postId = getDataString(item.data, 'incognitoPostId');
+        if (postId) return `${item.type}:${postId}`;
+    }
+
+    return item.id;
+}
+
+function isEngagementType(type: NotificationType): boolean {
+    return (
+        type === 'feed_like' ||
+        type === 'feed_comment' ||
+        type === 'freedom_like' ||
+        type === 'freedom_comment' ||
+        type === 'incognito_like' ||
+        type === 'incognito_comment'
+    );
+}
+
+function formatCompactRelativeTime(createdAt: string): string {
+    const timestamp = new Date(createdAt).getTime();
+    if (Number.isNaN(timestamp)) return '';
+
+    const diffMs = Math.max(0, Date.now() - timestamp);
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    const weekMs = 7 * dayMs;
+    const monthMs = 30 * dayMs;
+    const yearMs = 365 * dayMs;
+
+    if (diffMs < hourMs) {
+        return `${Math.max(1, Math.floor(diffMs / minuteMs))}m`;
+    }
+    if (diffMs < dayMs) {
+        return `${Math.max(1, Math.floor(diffMs / hourMs))}h`;
+    }
+    if (diffMs < weekMs) {
+        return `${Math.max(1, Math.floor(diffMs / dayMs))}d`;
+    }
+    if (diffMs < monthMs) {
+        return `${Math.max(1, Math.floor(diffMs / weekMs))}w`;
+    }
+    if (diffMs < yearMs) {
+        return `${Math.max(1, Math.floor(diffMs / monthMs))}m`;
+    }
+    return `${Math.max(1, Math.floor(diffMs / yearMs))}y`;
+}
+
+function formatActorLabel(group: NotificationGroup): string {
+    if (group.isAnonymous) {
+        return group.actorCount > 1
+            ? `${group.actorCount} anonymous users`
+            : 'An anonymous user';
+    }
+
+    const names = group.actorNames.slice(0, 2);
+    const others = Math.max(0, group.actorCount - names.length);
+
+    if (names.length === 0) {
+        return group.actorCount > 1 ? `${group.actorCount} people` : 'Someone';
+    }
+
+    if (names.length === 1) {
+        if (others === 0) return names[0];
+        return `${names[0]} and ${others} other ${others === 1 ? 'person' : 'people'}`;
+    }
+
+    if (others === 0) {
+        return `${names[0]} and ${names[1]}`;
+    }
+
+    return `${names[0]}, ${names[1]} and ${others} other ${others === 1 ? 'person' : 'people'}`;
+}
+
+function buildNotificationMessage(group: NotificationGroup): string {
+    const quotedCaption = `"${group.caption || 'none'}"`;
+    const actorLabel = formatActorLabel(group);
+
+    if (
+        group.type === 'feed_like' ||
+        group.type === 'freedom_like' ||
+        group.type === 'incognito_like'
+    ) {
+        return `${actorLabel} recently reacted to your post: ${quotedCaption}`;
+    }
+
+    if (
+        group.type === 'feed_comment' ||
+        group.type === 'freedom_comment' ||
+        group.type === 'incognito_comment'
+    ) {
+        return `${actorLabel} recently commented on your post: ${quotedCaption}`;
+    }
+
+    return group.body || group.title;
 }
 
 function NotificationSkeleton({ count = 3 }: { count?: number }) {
@@ -74,14 +206,135 @@ export default function NotificationsPage() {
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
-    const [busyId, setBusyId] = useState('');
+    const [busyKey, setBusyKey] = useState('');
     const [markingAll, setMarkingAll] = useState(false);
     const [cursor, setCursor] = useState<string | undefined>(undefined);
     const [hasMore, setHasMore] = useState(false);
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const itemsCountRef = useRef(0);
 
-    const unreadCount = useMemo(() => items.filter((item) => !item.readAt).length, [items]);
+    const unreadIdSet = useMemo(
+        () =>
+            new Set(
+                items.filter((item) => !item.readAt).map((item) => item.id),
+            ),
+        [items],
+    );
+
+    const unreadCount = unreadIdSet.size;
+
+    const groupedItems = useMemo(() => {
+        const grouped = new Map<
+            string,
+            {
+                key: string;
+                notificationIds: string[];
+                type: NotificationType;
+                createdAt: string;
+                createdAtMs: number;
+                href?: string;
+                title: string;
+                body: string;
+                caption: string;
+                actorNameById: Map<string, string>;
+                actorIdSet: Set<string>;
+                actorAvatarUrl?: string;
+                isAnonymous: boolean;
+                unread: boolean;
+            }
+        >();
+
+        for (const item of items) {
+            const key = getNotificationGroupKey(item);
+            const createdAtMs = Number.isNaN(new Date(item.createdAt).getTime())
+                ? 0
+                : new Date(item.createdAt).getTime();
+            const caption = getDataString(item.data, 'targetCaption') || 'none';
+
+            if (!grouped.has(key)) {
+                const actorNameById = new Map<string, string>();
+                const actorIdSet = new Set<string>();
+
+                if (item.actorUserId) {
+                    actorIdSet.add(item.actorUserId);
+                    const actorName = item.actorName?.trim();
+                    if (actorName) {
+                        actorNameById.set(item.actorUserId, actorName);
+                    }
+                }
+
+                grouped.set(key, {
+                    key,
+                    notificationIds: [item.id],
+                    type: item.type,
+                    createdAt: item.createdAt,
+                    createdAtMs,
+                    href: getNotificationHref(item),
+                    title: item.title,
+                    body: item.body,
+                    caption,
+                    actorNameById,
+                    actorIdSet,
+                    actorAvatarUrl: item.actorAvatarUrl,
+                    isAnonymous:
+                        item.type === 'incognito_like' ||
+                        item.type === 'incognito_comment',
+                    unread: !item.readAt,
+                });
+                continue;
+            }
+
+            const group = grouped.get(key);
+            if (!group) continue;
+
+            group.notificationIds.push(item.id);
+            if (!item.readAt) group.unread = true;
+            if (!group.href) {
+                group.href = getNotificationHref(item);
+            }
+            if (group.caption === 'none' && caption !== 'none') {
+                group.caption = caption;
+            }
+            if (!group.actorAvatarUrl && item.actorAvatarUrl) {
+                group.actorAvatarUrl = item.actorAvatarUrl;
+            }
+
+            if (item.actorUserId) {
+                group.actorIdSet.add(item.actorUserId);
+                const actorName = item.actorName?.trim();
+                if (actorName) {
+                    group.actorNameById.set(item.actorUserId, actorName);
+                }
+            }
+
+            if (createdAtMs > group.createdAtMs) {
+                group.createdAt = item.createdAt;
+                group.createdAtMs = createdAtMs;
+                group.title = item.title;
+                group.body = item.body;
+            }
+        }
+
+        return [...grouped.values()]
+            .sort((a, b) => b.createdAtMs - a.createdAtMs)
+            .map((group) => ({
+                key: group.key,
+                notificationIds: group.notificationIds,
+                type: group.type,
+                createdAt: group.createdAt,
+                href: group.href,
+                title: group.title,
+                body: group.body,
+                caption: group.caption || 'none',
+                actorNames: [...group.actorNameById.values()],
+                actorCount: group.isAnonymous
+                    ? group.notificationIds.length
+                    : group.actorIdSet.size,
+                actorAvatarUrl: group.actorAvatarUrl,
+                isAnonymous: group.isAnonymous,
+                unread: group.unread,
+            }));
+    }, [items]);
 
     useEffect(() => {
         itemsCountRef.current = items.length;
@@ -101,7 +354,10 @@ export default function NotificationsPage() {
                 setStatus('No notifications yet.');
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load notifications.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to load notifications.';
             setStatus(message);
         } finally {
             setLoading(false);
@@ -135,13 +391,18 @@ export default function NotificationsPage() {
             });
             setItems((prev) => {
                 const existingIds = new Set(prev.map((item) => item.id));
-                const next = page.items.filter((item) => !existingIds.has(item.id));
+                const next = page.items.filter(
+                    (item) => !existingIds.has(item.id),
+                );
                 return [...prev, ...next];
             });
             setCursor(page.nextCursor);
             setHasMore(page.hasMore);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load previous notifications.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to load previous notifications.';
             setStatus(message);
         } finally {
             setLoadingMore(false);
@@ -179,21 +440,37 @@ export default function NotificationsPage() {
         };
     }, [hasMore, loadMore, loading]);
 
-    async function onMarkRead(notificationId: string) {
-        if (busyId) return;
-        setBusyId(notificationId);
+    async function onMarkGroupRead(group: NotificationGroup) {
+        if (busyKey) return;
+
+        const unreadIds = group.notificationIds.filter((id) =>
+            unreadIdSet.has(id),
+        );
+        if (unreadIds.length === 0) return;
+
+        setBusyKey(group.key);
         try {
-            await markNotificationRead(notificationId);
+            await Promise.all(unreadIds.map((id) => markNotificationRead(id)));
+            const now = new Date().toISOString();
+            const unreadSet = new Set(unreadIds);
             setItems((prev) =>
                 prev.map((item) =>
-                    item.id === notificationId ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item,
+                    unreadSet.has(item.id)
+                        ? {
+                              ...item,
+                              readAt: item.readAt ?? now,
+                          }
+                        : item,
                 ),
             );
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to mark notification as read.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to mark notification as read.';
             setStatus(message);
         } finally {
-            setBusyId('');
+            setBusyKey('');
         }
     }
 
@@ -203,24 +480,39 @@ export default function NotificationsPage() {
         try {
             await markAllNotificationsRead();
             const now = new Date().toISOString();
-            setItems((prev) => prev.map((item) => ({ ...item, readAt: item.readAt ?? now })));
+            setItems((prev) =>
+                prev.map((item) => ({ ...item, readAt: item.readAt ?? now })),
+            );
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to mark all notifications as read.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to mark all notifications as read.';
             setStatus(message);
         } finally {
             setMarkingAll(false);
         }
     }
 
-    function onOpenNotification(item: AppNotification, href: string) {
-        if (!item.readAt) {
+    function onOpenGroup(group: NotificationGroup, href: string) {
+        const unreadIds = group.notificationIds.filter((id) =>
+            unreadIdSet.has(id),
+        );
+
+        if (unreadIds.length > 0) {
             const now = new Date().toISOString();
+            const unreadSet = new Set(unreadIds);
             setItems((prev) =>
-                prev.map((entry) =>
-                    entry.id === item.id ? { ...entry, readAt: entry.readAt ?? now } : entry,
+                prev.map((item) =>
+                    unreadSet.has(item.id)
+                        ? { ...item, readAt: item.readAt ?? now }
+                        : item,
                 ),
             );
-            void markNotificationRead(item.id).catch((error) => {
+
+            void Promise.all(
+                unreadIds.map((id) => markNotificationRead(id)),
+            ).catch((error) => {
                 const message =
                     error instanceof Error
                         ? error.message
@@ -235,7 +527,7 @@ export default function NotificationsPage() {
     return (
         <AuthGuard>
             <AppShell>
-                <PageHeader
+                {/* <PageHeader
                     eyebrow='Account'
                     title='Notifications'
                     description='Realtime alerts for likes, comments, new events, and key activity across Campus Gallery.'
@@ -249,35 +541,60 @@ export default function NotificationsPage() {
                             {markingAll ? 'Marking...' : 'Mark All Read'}
                         </button>
                     }
-                />
-
+                /> */}
+                <button
+                    type='button'
+                    onClick={() => void onMarkAllRead()}
+                    disabled={markingAll || unreadCount === 0}
+                    className='rounded-xl bg-slate-900 px-3 py-2 mb-2 w-full text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                >
+                    {markingAll ? 'Marking...' : 'Mark All Read'}
+                </button>
                 {loading ? <NotificationSkeleton count={4} /> : null}
                 {!loading && status ? (
-                    <p className='rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>{status}</p>
+                    <p className='rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
+                        {status}
+                    </p>
                 ) : null}
 
-                {!loading && items.length > 0 ? (
+                {!loading && groupedItems.length > 0 ? (
                     <section className='space-y-3'>
-                        {items.map((item) => {
-                            const unread = !item.readAt;
-                            const href = getNotificationHref(item);
-                            const clickable = Boolean(href);
+                        {groupedItems.map((group) => {
+                            const unread = group.unread;
+                            const clickable = Boolean(group.href);
+                            const message = buildNotificationMessage(group);
+                            const relativeLabel =
+                                formatCompactRelativeTime(group.createdAt) ||
+                                new Date(group.createdAt).toLocaleString();
+                            const showActorVisual = isEngagementType(
+                                group.type,
+                            );
+
                             return (
                                 <article
-                                    key={item.id}
+                                    key={group.key}
                                     onClick={
-                                        href
+                                        group.href
                                             ? () => {
-                                                  onOpenNotification(item, href);
+                                                  onOpenGroup(
+                                                      group,
+                                                      group.href as string,
+                                                  );
                                               }
                                             : undefined
                                     }
                                     onKeyDown={
-                                        href
+                                        group.href
                                             ? (event) => {
-                                                  if (event.key === 'Enter' || event.key === ' ') {
+                                                  if (
+                                                      event.key === 'Enter' ||
+                                                      event.key === ' '
+                                                  ) {
                                                       event.preventDefault();
-                                                      onOpenNotification(item, href);
+                                                      onOpenGroup(
+                                                          group,
+                                                          group.href as string,
+                                                      );
                                                   }
                                               }
                                             : undefined
@@ -285,38 +602,103 @@ export default function NotificationsPage() {
                                     role={clickable ? 'button' : undefined}
                                     tabIndex={clickable ? 0 : undefined}
                                     className={`rounded-2xl border p-4 shadow-sm transition ${
-                                        unread ? 'border-cyan-200 bg-cyan-50/70' : 'border-slate-200 bg-white'
+                                        unread
+                                            ? 'border-cyan-200 bg-cyan-50/70'
+                                            : 'border-slate-200 bg-white'
                                     } ${clickable ? 'cursor-pointer hover:border-cyan-300 hover:shadow-md' : ''} ${
-                                        clickable ? 'focus:outline-none focus:ring-2 focus:ring-cyan-400/70' : ''
+                                        clickable
+                                            ? 'focus:outline-none focus:ring-2 focus:ring-cyan-400/70'
+                                            : ''
                                     }`}
                                 >
-                                    <div className='flex flex-wrap items-start justify-between gap-2'>
-                                        <div>
-                                            <p className='text-sm font-semibold text-slate-900'>{item.title}</p>
-                                            <p className='mt-1 text-sm text-slate-700'>{item.body}</p>
-                                            <p className='mt-2 text-xs text-slate-500'>
-                                                {new Date(item.createdAt).toLocaleString()}
+                                    <div className='flex items-start gap-3'>
+                                        {showActorVisual ? (
+                                            group.isAnonymous ? (
+                                                <span className='grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black text-white'>
+                                                    <svg
+                                                        viewBox='0 0 24 24'
+                                                        aria-hidden='true'
+                                                        className='h-5 w-5'
+                                                        fill='none'
+                                                        stroke='currentColor'
+                                                        strokeWidth='2'
+                                                        strokeLinecap='round'
+                                                        strokeLinejoin='round'
+                                                    >
+                                                        <circle
+                                                            cx='12'
+                                                            cy='8'
+                                                            r='4'
+                                                        />
+                                                        <path d='M5 20a7 7 0 0 1 14 0' />
+                                                    </svg>
+                                                </span>
+                                            ) : (
+                                                <span className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                                                    <Image
+                                                        src={
+                                                            group.actorAvatarUrl ||
+                                                            ACTOR_AVATAR_FALLBACK
+                                                        }
+                                                        alt='Actor avatar'
+                                                        fill
+                                                        className='object-cover'
+                                                        sizes='40px'
+                                                    />
+                                                </span>
+                                            )
+                                        ) : (
+                                            <span className='grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500'>
+                                                <svg
+                                                    viewBox='0 0 24 24'
+                                                    aria-hidden='true'
+                                                    className='h-5 w-5'
+                                                    fill='none'
+                                                    stroke='currentColor'
+                                                    strokeWidth='2'
+                                                    strokeLinecap='round'
+                                                    strokeLinejoin='round'
+                                                >
+                                                    <path d='M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5' />
+                                                    <path d='M9 17a3 3 0 0 0 6 0' />
+                                                </svg>
+                                            </span>
+                                        )}
+
+                                        <div className='min-w-0 flex-1'>
+                                            <p className='text-sm font-semibold text-slate-900'>
+                                                {message}
+                                            </p>
+                                            <p className='mt-1 text-xs text-slate-500'>
+                                                {relativeLabel}
                                             </p>
                                         </div>
+
                                         <div className='flex items-center gap-2'>
                                             {unread ? (
-                                                <span className='rounded-full bg-cyan-600 px-2 py-0.5 text-[10px] font-bold text-white'>
-                                                    NEW
+                                                <span className=' text-[10px] font-bold text-white'>
+                                                    <div className='h-3 w-3 rounded-full bg-[#5AA7FF]'></div>
                                                 </span>
                                             ) : null}
-                                            {unread ? (
+                                            {/* {unread ? (
                                                 <button
                                                     type='button'
                                                     onClick={(event) => {
                                                         event.stopPropagation();
-                                                        void onMarkRead(item.id);
+                                                        void onMarkGroupRead(
+                                                            group,
+                                                        );
                                                     }}
-                                                    disabled={busyId === item.id}
+                                                    disabled={
+                                                        busyKey === group.key
+                                                    }
                                                     className='rounded-lg bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                                                 >
-                                                    {busyId === item.id ? 'Saving...' : 'Mark Read'}
+                                                    {busyKey === group.key
+                                                        ? 'Saving...'
+                                                        : 'Mark Read'}
                                                 </button>
-                                            ) : null}
+                                            ) : null} */}
                                         </div>
                                     </div>
                                 </article>
@@ -327,16 +709,24 @@ export default function NotificationsPage() {
 
                 {!loading && hasMore ? (
                     <div className='mt-4 space-y-3'>
-                        <div ref={anchorRef} className='h-2 w-full' aria-hidden='true' />
+                        <div
+                            ref={anchorRef}
+                            className='h-2 w-full'
+                            aria-hidden='true'
+                        />
                         <button
                             type='button'
                             onClick={() => void loadMore()}
                             disabled={loadingMore}
                             className='w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
                         >
-                            {loadingMore ? 'Loading previous notifications...' : 'See previous notifications'}
+                            {loadingMore
+                                ? 'Loading previous notifications...'
+                                : 'See previous notifications'}
                         </button>
-                        {loadingMore ? <NotificationSkeleton count={2} /> : null}
+                        {loadingMore ? (
+                            <NotificationSkeleton count={2} />
+                        ) : null}
                     </div>
                 ) : null}
             </AppShell>

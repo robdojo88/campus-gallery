@@ -8,6 +8,7 @@ export interface User {
     email: string;
     role: UserRole;
     avatarUrl: string;
+    incognitoAlias?: string;
     createdAt: string;
 }
 
@@ -57,6 +58,7 @@ export interface FreedomWallComment {
 export interface IncognitoPost {
     id: string;
     authorId: string;
+    authorAlias?: string;
     content: string;
     likes: number;
     comments: number;
@@ -105,6 +107,7 @@ export interface AppNotification {
     recipientUserId: string;
     actorUserId?: string;
     actorName?: string;
+    actorAvatarUrl?: string;
     type: NotificationType;
     title: string;
     body: string;

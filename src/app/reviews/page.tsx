@@ -7,17 +7,12 @@ import { PageHeader } from '@/components/ui/page-header';
 import { createReview, fetchReviews } from '@/lib/supabase';
 import type { Review } from '@/lib/types';
 
-function stars(rating: number): string {
-    return '★'.repeat(rating) + '☆'.repeat(5 - rating);
-}
-
 export default function ReviewsPage() {
     const [items, setItems] = useState<(Review & { visitorName: string })[]>(
         [],
     );
-    const [rating, setRating] = useState(5);
     const [reviewText, setReviewText] = useState('');
-    const [status, setStatus] = useState('Loading reviews...');
+    const [status, setStatus] = useState('Loading feedback...');
 
     useEffect(() => {
         let mounted = true;
@@ -25,14 +20,14 @@ export default function ReviewsPage() {
             .then((data) => {
                 if (!mounted) return;
                 setItems(data);
-                setStatus(data.length === 0 ? 'No reviews yet.' : '');
+                setStatus(data.length === 0 ? 'No feedback yet.' : '');
             })
             .catch((error: unknown) => {
                 if (!mounted) return;
                 const message =
                     error instanceof Error
                         ? error.message
-                        : 'Failed to load reviews.';
+                        : 'Failed to load feedback.';
                 setStatus(message);
             });
         return () => {
@@ -41,17 +36,23 @@ export default function ReviewsPage() {
     }, []);
 
     async function submitReview() {
+        const content = reviewText.trim();
+        if (!content) {
+            setStatus('Feedback cannot be empty.');
+            return;
+        }
+
         try {
-            await createReview({ rating, reviewText });
+            await createReview({ reviewText: content });
             setReviewText('');
-            setStatus('Review submitted.');
+            setStatus('Feedback submitted.');
             const data = await fetchReviews();
             setItems(data);
         } catch (error) {
             const message =
                 error instanceof Error
                     ? error.message
-                    : 'Review submit failed.';
+                    : 'Feedback submit failed.';
             setStatus(message);
         }
     }
@@ -61,31 +62,18 @@ export default function ReviewsPage() {
             <AppShell>
                 <PageHeader
                     eyebrow='Feedback'
-                    title='Visitor Reviews'
-                    description='Visitors can submit ratings and text feedback. Admin approval controls publication.'
+                    title='Visitor Feedback'
+                    description='Visitors can submit text feedback. Admin approval controls publication.'
                 />
                 <section className='mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
-                    <h2 className='mb-3 text-lg font-bold'>Add Review</h2>
-                    <div className='grid gap-3 md:grid-cols-[180px_1fr_auto]'>
-                        <select
-                            value={rating}
-                            onChange={(event) =>
-                                setRating(Number(event.target.value))
-                            }
-                            className='rounded-xl border border-slate-300 px-3 py-2 text-sm'
-                        >
-                            {[5, 4, 3, 2, 1].map((value) => (
-                                <option key={value} value={value}>
-                                    {value} Star
-                                </option>
-                            ))}
-                        </select>
+                    <h2 className='mb-3 text-lg font-bold'>Add Feedback</h2>
+                    <div className='grid gap-3 md:grid-cols-[1fr_auto]'>
                         <input
                             value={reviewText}
                             onChange={(event) =>
                                 setReviewText(event.target.value)
                             }
-                            placeholder='Write your review'
+                            placeholder='Write your feedback'
                             className='rounded-xl border border-slate-300 px-3 py-2 text-sm'
                         />
                         <button
@@ -122,9 +110,6 @@ export default function ReviewsPage() {
                                     {review.status}
                                 </span>
                             </div>
-                            <p className='mt-1 text-sm text-amber-600'>
-                                {stars(review.rating)}
-                            </p>
                             <p className='mt-2 text-sm text-slate-700'>
                                 {review.reviewText}
                             </p>
