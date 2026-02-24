@@ -9,6 +9,11 @@ const cards = [
         detail: 'Manage users, roles, and suspensions',
     },
     {
+        href: '/admin/students',
+        label: 'Students',
+        detail: 'Import and maintain USN roster from Excel',
+    },
+    {
         href: '/admin/events',
         label: 'Events',
         detail: 'Create event folders for camera tagging dropdowns',

@@ -4,14 +4,16 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { MainNav } from '@/components/layout/main-nav';
 import { OfflineSync } from '@/components/system/offline-sync';
 import {
     fetchFreedomPosts,
     fetchIncognitoPosts,
     fetchPostsPage,
+    getCurrentUserProfile,
 } from '@/lib/supabase';
+import type { UserRole } from '@/lib/types';
 
 type SidebarLink = {
     href: string;
@@ -39,12 +41,31 @@ const sidebarLinks: SidebarLink[] = [
     },
 ];
 
+const VISITOR_HIDDEN_LINKS = new Set([
+    '/gallery/date',
+    '/gallery/events',
+    '/freedom-wall',
+    '/incognito',
+]);
+
 function isActive(pathname: string, href: string): boolean {
     if (href === '/camera') return pathname === '/camera';
     return pathname.startsWith(href);
 }
 
-function LeftSidebar({ pathname }: { pathname: string }) {
+function LeftSidebar({
+    pathname,
+    role,
+}: {
+    pathname: string;
+    role: UserRole | null;
+}) {
+    const limitedVisitorMode = role !== 'admin' && role !== 'member';
+    const visibleLinks = useMemo(() => {
+        if (!limitedVisitorMode) return sidebarLinks;
+        return sidebarLinks.filter((link) => !VISITOR_HIDDEN_LINKS.has(link.href));
+    }, [limitedVisitorMode]);
+
     return (
         <aside className='hidden lg:block'>
             <div className='fixed top-20 w-[16%] space-y-4'>
@@ -53,7 +74,7 @@ function LeftSidebar({ pathname }: { pathname: string }) {
                         Navigation
                     </p>
                     <nav className='space-y-1.5'>
-                        {sidebarLinks.map((link) => {
+                        {visibleLinks.map((link) => {
                             const active = isActive(pathname, link.href);
                             return (
                                 <Link
@@ -189,7 +210,17 @@ function buildTrendingHashtags(
         .map(([tag, count]) => ({ tag: `#${tag}`, count }));
 }
 
-function RightSidebar() {
+function sortByTrendScore(items: TrendingItem[]): TrendingItem[] {
+    return [...items].sort((a, b) => {
+        if (b.interactions !== a.interactions) {
+            return b.interactions - a.interactions;
+        }
+        return safeTimeValue(b.createdAt) - safeTimeValue(a.createdAt);
+    });
+}
+
+function RightSidebar({ role }: { role: UserRole | null }) {
+    const limitedVisitorMode = role !== 'admin' && role !== 'member';
     const [items, setItems] = useState<TrendingItem[]>([]);
     const [hashtags, setHashtags] = useState<TrendingHashtag[]>([]);
     const [previewIndexByKey, setPreviewIndexByKey] = useState<
@@ -205,6 +236,43 @@ function RightSidebar() {
             try {
                 if (mounted) {
                     setStatus('');
+                }
+
+                if (limitedVisitorMode) {
+                    const feedPage = await fetchPostsPage({
+                        visibility: 'visitor',
+                        limit: 80,
+                    });
+
+                    const topFeedItems = sortByTrendScore(
+                        feedPage.items.map((post) => ({
+                            key: `feed-${post.id}`,
+                            source: 'Feed' as const,
+                            href: `/feed?post=${encodeURIComponent(post.id)}`,
+                            title: normalizePreviewText(
+                                post.caption || post.eventName || '',
+                                'Feed post',
+                            ),
+                            likes: post.likes,
+                            comments: post.comments,
+                            interactions: post.likes + post.comments,
+                            createdAt: post.createdAt,
+                            previewImages: normalizePreviewImages([
+                                ...(post.images ?? []),
+                                post.imageUrl,
+                            ]),
+                        })),
+                    ).slice(0, 5);
+
+                    if (!mounted) return;
+                    setItems(topFeedItems);
+                    setHashtags([]);
+                    setStatus(
+                        topFeedItems.length === 0
+                            ? 'No trending feed posts yet.'
+                            : '',
+                    );
+                    return;
                 }
 
                 const [feedPage, freedomPosts, incognitoPosts] =
@@ -226,8 +294,8 @@ function RightSidebar() {
                 });
                 const nextHashtags = buildTrendingHashtags(hashtagTexts, 8);
 
-                const feedTrending = feedPage.items
-                    .map((post) => ({
+                const feedTrending = sortByTrendScore(
+                    feedPage.items.map((post) => ({
                         key: `feed-${post.id}`,
                         source: 'Feed' as const,
                         href: `/feed?post=${encodeURIComponent(post.id)}`,
@@ -243,19 +311,11 @@ function RightSidebar() {
                             ...(post.images ?? []),
                             post.imageUrl,
                         ]),
-                    }))
-                    .sort((a, b) => {
-                        if (b.interactions !== a.interactions) {
-                            return b.interactions - a.interactions;
-                        }
-                        return (
-                            safeTimeValue(b.createdAt) -
-                            safeTimeValue(a.createdAt)
-                        );
-                    })[0];
+                    })),
+                )[0];
 
-                const freedomTrending = freedomPosts
-                    .map((post) => ({
+                const freedomTrending = sortByTrendScore(
+                    freedomPosts.map((post) => ({
                         key: `freedom-${post.id}`,
                         source: 'Freedom Wall' as const,
                         href: `/freedom-wall?post=${encodeURIComponent(
@@ -270,19 +330,11 @@ function RightSidebar() {
                         interactions: post.likes + post.comments,
                         createdAt: post.createdAt,
                         previewImages: normalizePreviewImages([post.imageUrl]),
-                    }))
-                    .sort((a, b) => {
-                        if (b.interactions !== a.interactions) {
-                            return b.interactions - a.interactions;
-                        }
-                        return (
-                            safeTimeValue(b.createdAt) -
-                            safeTimeValue(a.createdAt)
-                        );
-                    })[0];
+                    })),
+                )[0];
 
-                const incognitoTrending = incognitoPosts
-                    .map((post) => ({
+                const incognitoTrending = sortByTrendScore(
+                    incognitoPosts.map((post) => ({
                         key: `incognito-${post.id}`,
                         source: 'Incognito' as const,
                         href: `/incognito?post=${encodeURIComponent(post.id)}`,
@@ -295,16 +347,8 @@ function RightSidebar() {
                         interactions: post.likes + post.comments,
                         createdAt: post.createdAt,
                         previewImages: [],
-                    }))
-                    .sort((a, b) => {
-                        if (b.interactions !== a.interactions) {
-                            return b.interactions - a.interactions;
-                        }
-                        return (
-                            safeTimeValue(b.createdAt) -
-                            safeTimeValue(a.createdAt)
-                        );
-                    })[0];
+                    })),
+                )[0];
 
                 const nextItems: TrendingItem[] = [];
                 if (feedTrending) nextItems.push(feedTrending);
@@ -342,7 +386,7 @@ function RightSidebar() {
             mounted = false;
             window.clearInterval(refreshTimer);
         };
-    }, []);
+    }, [limitedVisitorMode]);
 
     useEffect(() => {
         setPreviewIndexByKey((previous) => {
@@ -378,7 +422,7 @@ function RightSidebar() {
 
     return (
         <aside className='hidden xl:block'>
-            <div className='fixed w-[22%] top-20 space-y-4'>
+            <div className='fixed top-20 w-[22%] space-y-4'>
                 <section className='rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'>
                     <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
                         Trending Posts
@@ -415,7 +459,7 @@ function RightSidebar() {
                                         <p className='mt-1 line-clamp-2 text-sm font-medium text-slate-800'>
                                             {item.title}
                                         </p>
-                                        {/* {previewImage ? (
+                                        {previewImage ? (
                                             <div className='relative mt-2 h-48 overflow-hidden rounded-lg bg-slate-100'>
                                                 <AnimatePresence
                                                     mode='wait'
@@ -436,7 +480,7 @@ function RightSidebar() {
                                                             scale: 0.98,
                                                         }}
                                                         transition={{
-                                                            duration: 0.12,
+                                                            duration: 0.18,
                                                             ease: 'easeOut',
                                                         }}
                                                         className='absolute inset-0'
@@ -465,7 +509,7 @@ function RightSidebar() {
                                                     </span>
                                                 ) : null}
                                             </div>
-                                        ) : null} */}
+                                        ) : null}
                                         <p className='mt-2 text-[11px] text-slate-600'>
                                             {item.interactions} interactions |{' '}
                                             {item.comments} comments
@@ -475,7 +519,7 @@ function RightSidebar() {
                             })}
                         </div>
                     ) : null}
-                    {!loading && hashtags.length > 0 ? (
+                    {!loading && !limitedVisitorMode && hashtags.length > 0 ? (
                         <div className='mt-4 border-t border-slate-200 pt-3'>
                             <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
                                 Trending Hashtags
@@ -504,12 +548,29 @@ function RightSidebar() {
 
 export function AppShell({ children }: { children: ReactNode }) {
     const pathname = usePathname();
+    const [role, setRole] = useState<UserRole | null>(null);
     const isCameraRoute = pathname.startsWith('/camera');
     const showLeftSidebar = !isCameraRoute;
     const showRightSidebar =
         !isCameraRoute &&
         !pathname.startsWith('/admin') &&
         !pathname.startsWith('/profile');
+
+    useEffect(() => {
+        let mounted = true;
+        void getCurrentUserProfile()
+            .then((profile) => {
+                if (!mounted) return;
+                setRole(profile?.role ?? null);
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setRole(null);
+            });
+        return () => {
+            mounted = false;
+        };
+    }, []);
 
     const gridLayoutClass =
         showLeftSidebar && showRightSidebar
@@ -524,13 +585,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className='min-h-screen'>
             <OfflineSync />
             <MainNav />
-            <div className='mx-auto w-full max-w-370  px-3 pb-10 pt-5 md:px-2 md:pt-5 lg:px-8'>
+            <div className='mx-auto w-full max-w-370 px-3 pb-10 pt-5 md:px-2 md:pt-5 lg:px-8'>
                 <div className={`grid ${gridLayoutClass}`}>
                     {showLeftSidebar ? (
-                        <LeftSidebar pathname={pathname} />
+                        <LeftSidebar pathname={pathname} role={role} />
                     ) : null}
                     <main className='min-w-0'>{children}</main>
-                    {showRightSidebar ? <RightSidebar /> : null}
+                    {showRightSidebar ? <RightSidebar role={role} /> : null}
                 </div>
             </div>
         </div>

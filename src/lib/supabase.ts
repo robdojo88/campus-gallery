@@ -17,6 +17,9 @@ import type {
     SearchEventResult,
     SearchPostResult,
     SearchUserResult,
+    StudentRegistryEntry,
+    StudentRegistryStatus,
+    StudentRegistryUpsertInput,
     ReportTargetType,
     ReportStatus,
     UserRole,
@@ -27,6 +30,7 @@ type DbUser = {
     id: string;
     name: string;
     email: string;
+    usn: string | null;
     role: UserRole;
     avatar_url: string | null;
     incognito_alias: string | null;
@@ -159,11 +163,25 @@ type DbContentReport = {
     created_at: string;
 };
 
+type DbStudentRegistry = {
+    id: string;
+    usn: string;
+    first_name: string;
+    last_name: string;
+    course: string | null;
+    year_level: number | null;
+    email: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+};
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const DEFAULT_AVATAR_URL = '/avatar-default.svg';
 const INCOGNITO_ALIAS_PATTERN = /^[A-Za-z0-9._-]{3,24}$/;
 const INCOGNITO_ALIAS_RULES = 'Incognito alias must be 3-24 characters and use letters, numbers, dot, underscore, or hyphen.';
+const PENDING_LOGIN_USN_KEY = 'ripple_pending_login_usn';
 
 let browserClient: SupabaseClient | null = null;
 let sessionRecoveryPromise: Promise<void> | null = null;
@@ -276,10 +294,37 @@ function mapUser(dbUser: DbUser) {
         id: dbUser.id,
         name: dbUser.name,
         email: dbUser.email,
+        usn: toNonEmptyString(dbUser.usn) ?? undefined,
         role: dbUser.role,
         avatarUrl: resolveAvatarUrl(dbUser.avatar_url),
         incognitoAlias: parseIncognitoAlias(dbUser.incognito_alias) ?? undefined,
         createdAt: dbUser.created_at,
+    };
+}
+
+function normalizeStudentRegistryStatus(
+    value: unknown,
+): StudentRegistryStatus {
+    const normalized = toNonEmptyString(value)?.toLowerCase();
+    return normalized === 'inactive' ? 'inactive' : 'active';
+}
+
+function mapStudentRegistryRow(row: DbStudentRegistry): StudentRegistryEntry {
+    const firstName = row.first_name.trim();
+    const lastName = row.last_name.trim();
+    const course = toNonEmptyString(row.course) ?? undefined;
+    return {
+        id: row.id,
+        usn: row.usn,
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`.trim(),
+        course,
+        yearLevel: row.year_level ?? undefined,
+        email: row.email,
+        status: normalizeStudentRegistryStatus(row.status),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
     };
 }
 
@@ -311,6 +356,85 @@ function normalizeUuid(value?: string): string | undefined {
 
 function normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+}
+
+function normalizeUsn(value: string): string {
+    return value.trim().toUpperCase();
+}
+
+function setPendingLoginUsn(usnInput: string): void {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(PENDING_LOGIN_USN_KEY, normalizeUsn(usnInput));
+}
+
+function takePendingLoginUsn(): string | null {
+    if (typeof window === 'undefined') return null;
+    const stored = window.localStorage.getItem(PENDING_LOGIN_USN_KEY);
+    if (stored === null) return null;
+    window.localStorage.removeItem(PENDING_LOGIN_USN_KEY);
+    return stored;
+}
+
+function clearPendingLoginUsn(): void {
+    if (typeof window === 'undefined') return;
+    window.localStorage.removeItem(PENDING_LOGIN_USN_KEY);
+}
+
+function normalizeStudentRegistryPayload(input: StudentRegistryUpsertInput): {
+    usn: string;
+    first_name: string;
+    last_name: string;
+    course: string | null;
+    year_level: number | null;
+    email: string;
+    status: StudentRegistryStatus;
+} {
+    const usn = input.usn.trim().toUpperCase();
+    if (!usn) {
+        throw new Error('USN is required.');
+    }
+
+    const firstName = input.firstName.trim();
+    if (!firstName) {
+        throw new Error('First name is required.');
+    }
+
+    const lastName = input.lastName.trim();
+    if (!lastName) {
+        throw new Error('Last name is required.');
+    }
+
+    const email = normalizeEmail(input.email);
+    if (!email) {
+        throw new Error('Email is required.');
+    }
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(email)) {
+        throw new Error('Email format is invalid.');
+    }
+
+    const course = toNonEmptyString(input.course) ?? null;
+    const status = normalizeStudentRegistryStatus(input.status);
+    let yearLevel: number | null = null;
+    if (typeof input.yearLevel === 'number') {
+        if (!Number.isFinite(input.yearLevel)) {
+            throw new Error('Year level must be a valid number.');
+        }
+        yearLevel = Math.trunc(input.yearLevel);
+    }
+    if (yearLevel !== null && (yearLevel < 1 || yearLevel > 12)) {
+        throw new Error('Year level must be between 1 and 12.');
+    }
+
+    return {
+        usn,
+        first_name: firstName,
+        last_name: lastName,
+        course,
+        year_level: yearLevel,
+        email,
+        status,
+    };
 }
 
 function normalizeSearchQuery(query: string): string {
@@ -583,6 +707,22 @@ function isMissingContentReportsTableError(error: unknown): boolean {
     return isMissingTableError(error, 'content_reports');
 }
 
+function isMissingStudentRegistryTableError(error: unknown): boolean {
+    return isMissingTableError(error, 'student_registry');
+}
+
+function isMissingUsnResolutionFunctionError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? ((error as { message: string }).message || '').toLowerCase()
+            : '';
+    return (
+        message.includes('resolve_user_role_by_usn') &&
+        (message.includes('does not exist') || message.includes('function'))
+    );
+}
+
 function mapPosts(
     rawPosts: DbPost[],
     users: DbUser[],
@@ -658,10 +798,58 @@ export async function getSessionUser(): Promise<User | null> {
     return data.user ?? null;
 }
 
+type DbUsnRoleResolution = {
+    role: UserRole;
+    usn: string | null;
+    profile_name: string | null;
+};
+
+async function resolveCurrentUserRoleByUsn(usnInput: string): Promise<DbUsnRoleResolution> {
+    const supabase = getSupabase();
+    const normalizedUsn = normalizeUsn(usnInput);
+    const { data, error } = await supabase
+        .rpc('resolve_user_role_by_usn', {
+            input_usn: normalizedUsn,
+        })
+        .maybeSingle<DbUsnRoleResolution>();
+
+    if (error) {
+        if (isMissingUsnResolutionFunctionError(error)) {
+            throw new Error(
+                "Database migration required: missing 'resolve_user_role_by_usn' function. Run 'supabase/usn-role-resolution.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
+
+    if (!data) {
+        throw new Error('Failed to resolve account role from USN.');
+    }
+
+    return data;
+}
+
+async function applyPendingUsnResolution(user: User): Promise<void> {
+    const pendingUsn = takePendingLoginUsn();
+    if (pendingUsn === null) return;
+
+    try {
+        await ensureUserProfile(user);
+        await resolveCurrentUserRoleByUsn(pendingUsn);
+    } catch (error) {
+        const supabase = getSupabase();
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+        throw toAppError(error);
+    } finally {
+        clearPendingLoginUsn();
+    }
+}
+
 export async function getCurrentUserProfile() {
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) return null;
+    await applyPendingUsnResolution(user);
 
     const { data, error } = await supabase.from('users').select('*').eq('id', user.id).maybeSingle<DbUser>();
     if (error) throw toAppError(error);
@@ -694,34 +882,49 @@ export async function ensureUserProfile(user: User): Promise<void> {
         toNonEmptyString(user.user_metadata?.full_name) ??
         toNonEmptyString(user.user_metadata?.user_name) ??
         '';
-    const metadataRole =
-        user.user_metadata?.role === 'admin' || user.user_metadata?.role === 'member' || user.user_metadata?.role === 'visitor'
-            ? user.user_metadata.role
-            : 'member';
+    const metadataRole: UserRole =
+        user.user_metadata?.role === 'admin' ? 'admin' : 'visitor';
     const metadataAvatarUrl = getAvatarFromAuthUser(user);
     const metadataAlias =
         parseIncognitoAlias(user.user_metadata?.incognito_alias) ??
         parseIncognitoAlias(user.user_metadata?.incognitoAlias);
+
     const { data: existingProfile, error: existingProfileError } = await supabase
         .from('users')
-        .select('avatar_url,incognito_alias')
+        .select('name,avatar_url,incognito_alias,role,usn')
         .eq('id', user.id)
-        .maybeSingle<{ avatar_url: string | null; incognito_alias: string | null }>();
+        .maybeSingle<{
+            name: string;
+            avatar_url: string | null;
+            incognito_alias: string | null;
+            role: UserRole;
+            usn: string | null;
+        }>();
     if (existingProfileError) throw toAppError(existingProfileError);
 
+    const existingName = toNonEmptyString(existingProfile?.name);
     const existingAvatarUrl = toNonEmptyString(existingProfile?.avatar_url);
     const existingAlias = parseIncognitoAlias(existingProfile?.incognito_alias);
+    const existingRole = existingProfile?.role;
+    const existingUsn = toNonEmptyString(existingProfile?.usn);
     const avatarUrl =
         existingAvatarUrl && existingAvatarUrl !== DEFAULT_AVATAR_URL
             ? existingAvatarUrl
             : resolveAvatarUrl(metadataAvatarUrl ?? existingAvatarUrl);
     const incognitoAlias = existingAlias ?? metadataAlias;
+    const resolvedRole: UserRole = existingRole ?? metadataRole;
+    const profileName =
+        existingName ??
+        toNonEmptyString(metadataName) ??
+        user.email?.split('@')[0] ??
+        'Campus User';
 
     const { error } = await supabase.from('users').upsert({
         id: user.id,
         email: user.email ?? '',
-        name: metadataName || user.email?.split('@')[0] || 'Campus User',
-        role: metadataRole,
+        name: profileName,
+        role: resolvedRole,
+        usn: existingUsn ?? null,
         avatar_url: avatarUrl,
         incognito_alias: incognitoAlias,
     });
@@ -767,12 +970,15 @@ export async function signUpWithEmail(input: {
     name: string;
     email: string;
     password: string;
-    role: 'member' | 'visitor';
-    incognitoAlias?: string;
+    usn: string;
 }) {
     const supabase = getSupabase();
     const email = normalizeEmail(input.email);
-    const incognitoAlias = input.role === 'member' ? requireValidIncognitoAlias(input.incognitoAlias ?? '') : null;
+    const usn = normalizeUsn(input.usn);
+    if (!usn) {
+        throw new Error('USN is required.');
+    }
+
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
     const { data, error } = await supabase.auth.signUp({
         email,
@@ -780,21 +986,24 @@ export async function signUpWithEmail(input: {
         options: {
             data: {
                 name: input.name,
-                role: input.role,
-                ...(incognitoAlias ? { incognito_alias: incognitoAlias } : {}),
             },
             emailRedirectTo: redirectTo,
         },
     });
     if (error) {
-        if (isIncognitoAliasConflictError(error)) {
-            throw new Error('This incognito alias is already in use. Pick another alias.');
-        }
         throw toAppError(error);
     }
+
     if (data.user && data.session) {
-        await ensureUserProfile(data.user);
+        try {
+            await ensureUserProfile(data.user);
+            await resolveCurrentUserRoleByUsn(usn);
+        } catch (resolveError) {
+            await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+            throw toAppError(resolveError);
+        }
     }
+
     return data;
 }
 
@@ -859,20 +1068,55 @@ export async function resendConfirmationEmail(email: string): Promise<void> {
     if (error) throw toAppError(error);
 }
 
-export async function signInWithEmail(input: { email: string; password: string }) {
+export async function signInWithEmail(input: {
+    email: string;
+    password: string;
+    usn: string;
+}) {
     const supabase = getSupabase();
     const email = normalizeEmail(input.email);
+    const usn = normalizeUsn(input.usn);
+    if (!usn) {
+        throw new Error('USN is required.');
+    }
+
+    setPendingLoginUsn(usn);
+
     const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password: input.password,
     });
-    if (error) throw toAppError(error);
-    if (data.user) await ensureUserProfile(data.user);
+
+    if (error) {
+        clearPendingLoginUsn();
+        throw toAppError(error);
+    }
+
+    if (data.user) {
+        try {
+            await ensureUserProfile(data.user);
+            await resolveCurrentUserRoleByUsn(usn);
+        } catch (resolveError) {
+            await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+            clearPendingLoginUsn();
+            throw toAppError(resolveError);
+        }
+    }
+
+    clearPendingLoginUsn();
     return data;
 }
 
-export async function signInWithGoogle(): Promise<void> {
+export async function signInWithGoogle(usnInput?: string): Promise<void> {
     const supabase = getSupabase();
+    const providedUsn = toNonEmptyString(usnInput);
+
+    if (providedUsn) {
+        setPendingLoginUsn(providedUsn);
+    } else {
+        clearPendingLoginUsn();
+    }
+
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/feed` : undefined;
     const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -884,7 +1128,10 @@ export async function signInWithGoogle(): Promise<void> {
             },
         },
     });
-    if (error) throw toAppError(error);
+    if (error) {
+        clearPendingLoginUsn();
+        throw toAppError(error);
+    }
 }
 
 export async function signOutUser() {
@@ -2420,6 +2667,11 @@ export async function togglePostCommentLike(commentId: string): Promise<{ liked:
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in.');
 
+    const profile = await getCurrentUserProfile().catch(() => null);
+    if (profile?.role === 'visitor') {
+        throw new Error('Visitor accounts can only like feed posts.');
+    }
+
     const { data: existing, error: checkError } = await supabase
         .from('comment_likes')
         .select('id')
@@ -2582,6 +2834,12 @@ export async function addPostComment(postId: string, content: string, parentId?:
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in.');
+
+    const profile = await getCurrentUserProfile().catch(() => null);
+    if (profile?.role === 'visitor') {
+        throw new Error('Visitor accounts can read comments but cannot comment.');
+    }
+
     const cleaned = content.trim();
     if (!cleaned) throw new Error('Comment cannot be empty.');
 
@@ -2653,6 +2911,127 @@ export async function fetchUsers() {
     const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false }).returns<DbUser[]>();
     if (error) throw toAppError(error);
     return (data ?? []).map(mapUser);
+}
+
+export async function fetchStudentRegistry(): Promise<StudentRegistryEntry[]> {
+    const { supabase } = await requireAdminSession();
+    const { data, error } = await supabase
+        .from('student_registry')
+        .select('*')
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+        .returns<DbStudentRegistry[]>();
+    if (error) {
+        if (isMissingStudentRegistryTableError(error)) {
+            throw new Error(
+                "Database migration required: missing 'student_registry' table. Run 'supabase/student-registry.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
+    return (data ?? []).map(mapStudentRegistryRow);
+}
+
+export async function upsertStudentRegistryEntry(
+    input: StudentRegistryUpsertInput & { id?: string },
+): Promise<StudentRegistryEntry> {
+    const { supabase } = await requireAdminSession();
+    const payload = normalizeStudentRegistryPayload(input);
+
+    if (input.id) {
+        if (!UUID_PATTERN.test(input.id)) {
+            throw new Error('Invalid student entry id.');
+        }
+        const { data, error } = await supabase
+            .from('student_registry')
+            .update(payload)
+            .eq('id', input.id)
+            .select('*')
+            .maybeSingle<DbStudentRegistry>();
+        if (error) {
+            if (isMissingStudentRegistryTableError(error)) {
+                throw new Error(
+                    "Database migration required: missing 'student_registry' table. Run 'supabase/student-registry.sql' and retry.",
+                );
+            }
+            if (isUniqueViolationError(error)) {
+                throw new Error('USN or email already exists for another student.');
+            }
+            throw toAppError(error);
+        }
+        if (!data) {
+            throw new Error('Student record was not found.');
+        }
+        return mapStudentRegistryRow(data);
+    }
+
+    const { data, error } = await supabase
+        .from('student_registry')
+        .upsert(payload, { onConflict: 'usn' })
+        .select('*')
+        .maybeSingle<DbStudentRegistry>();
+    if (error) {
+        if (isMissingStudentRegistryTableError(error)) {
+            throw new Error(
+                "Database migration required: missing 'student_registry' table. Run 'supabase/student-registry.sql' and retry.",
+            );
+        }
+        if (isUniqueViolationError(error)) {
+            throw new Error('USN or email already exists for another student.');
+        }
+        throw toAppError(error);
+    }
+    if (!data) {
+        throw new Error('Failed to save student record.');
+    }
+    return mapStudentRegistryRow(data);
+}
+
+export async function bulkUpsertStudentRegistry(
+    rows: StudentRegistryUpsertInput[],
+): Promise<{ upserted: number }> {
+    const { supabase } = await requireAdminSession();
+    if (rows.length === 0) {
+        return { upserted: 0 };
+    }
+
+    const payload = rows.map((row) => normalizeStudentRegistryPayload(row));
+    const { data, error } = await supabase
+        .from('student_registry')
+        .upsert(payload, { onConflict: 'usn' })
+        .select('id')
+        .returns<Array<{ id: string }>>();
+    if (error) {
+        if (isMissingStudentRegistryTableError(error)) {
+            throw new Error(
+                "Database migration required: missing 'student_registry' table. Run 'supabase/student-registry.sql' and retry.",
+            );
+        }
+        if (isUniqueViolationError(error)) {
+            throw new Error('Import failed because at least one email or USN is duplicated.');
+        }
+        throw toAppError(error);
+    }
+    return { upserted: data?.length ?? payload.length };
+}
+
+export async function deleteStudentRegistryEntry(entryId: string): Promise<void> {
+    if (!UUID_PATTERN.test(entryId)) {
+        throw new Error('Invalid student entry id.');
+    }
+    const { supabase } = await requireAdminSession();
+    const { error } = await supabase
+        .from('student_registry')
+        .delete()
+        .eq('id', entryId);
+    if (error) {
+        if (isMissingStudentRegistryTableError(error)) {
+            throw new Error(
+                "Database migration required: missing 'student_registry' table. Run 'supabase/student-registry.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
 }
 
 export async function searchGlobalContent(

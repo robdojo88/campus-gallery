@@ -26,14 +26,14 @@ export function AuthGuard({
     );
 
     function fallbackRouteForRole(role: UserRole): string {
-        if (role === 'visitor') return '/visitor-gallery';
+        if (role === 'visitor') return '/feed';
         if (role === 'admin' || role === 'member') return '/feed';
         return '/login';
     }
 
     function roleFromMetadata(value: unknown): UserRole {
         if (value === 'admin' || value === 'member' || value === 'visitor') return value;
-        return 'member';
+        return 'visitor';
     }
 
     useEffect(() => {
@@ -102,3 +102,4 @@ export function AuthGuard({
 
     return <>{children}</>;
 }
+

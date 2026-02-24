@@ -11,7 +11,7 @@ import {
     getCurrentUserProfile,
     subscribeToPosts,
 } from '@/lib/supabase';
-import type { Post } from '@/lib/types';
+import type { Post, UserRole, Visibility } from '@/lib/types';
 
 const PAGE_SIZE = 5;
 
@@ -19,6 +19,7 @@ export default function FeedPage() {
     const [targetPostId, setTargetPostId] = useState('');
     const [targetCommentId, setTargetCommentId] = useState('');
     const [isAdminViewer, setIsAdminViewer] = useState<boolean | null>(null);
+    const [viewerRole, setViewerRole] = useState<UserRole | null>(null);
     const [campusPosts, setCampusPosts] = useState<Post[]>([]);
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
@@ -28,6 +29,11 @@ export default function FeedPage() {
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const postsCountRef = useRef(0);
     const focusedPostIdRef = useRef('');
+
+    const feedVisibility: Visibility =
+        viewerRole === 'admin' || viewerRole === 'member'
+            ? 'campus'
+            : 'visitor';
 
     useEffect(() => {
         postsCountRef.current = campusPosts.length;
@@ -54,7 +60,7 @@ export default function FeedPage() {
         setHasMore(false);
         try {
             const page = await fetchPostsPage({
-                visibility: 'campus',
+                visibility: feedVisibility,
                 limit: PAGE_SIZE,
             });
             setCampusPosts(page.items);
@@ -67,13 +73,13 @@ export default function FeedPage() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [feedVisibility]);
 
     const refreshLoaded = useCallback(async () => {
         const loadedCount = Math.max(PAGE_SIZE, postsCountRef.current);
         try {
             const page = await fetchPostsPage({
-                visibility: 'campus',
+                visibility: feedVisibility,
                 limit: loadedCount,
             });
             setCampusPosts(page.items);
@@ -83,14 +89,14 @@ export default function FeedPage() {
         } catch {
             // Keep current content visible if background refresh fails.
         }
-    }, []);
+    }, [feedVisibility]);
 
     const loadMore = useCallback(async () => {
         if (!hasMore || !cursor || loading || loadingMore) return;
         setLoadingMore(true);
         try {
             const page = await fetchPostsPage({
-                visibility: 'campus',
+                visibility: feedVisibility,
                 limit: PAGE_SIZE,
                 beforeCreatedAt: cursor,
             });
@@ -112,7 +118,7 @@ export default function FeedPage() {
         } finally {
             setLoadingMore(false);
         }
-    }, [cursor, hasMore, loading, loadingMore]);
+    }, [cursor, feedVisibility, hasMore, loading, loadingMore]);
 
     useEffect(() => {
         void loadInitial();
@@ -129,10 +135,12 @@ export default function FeedPage() {
         getCurrentUserProfile()
             .then((profile) => {
                 if (!mounted) return;
+                setViewerRole(profile?.role ?? null);
                 setIsAdminViewer(profile?.role === 'admin');
             })
             .catch(() => {
                 if (!mounted) return;
+                setViewerRole(null);
                 setIsAdminViewer(false);
             });
         return () => {
@@ -178,7 +186,7 @@ export default function FeedPage() {
     }, [campusPosts, hasMore, loadMore, loading, loadingMore, targetPostId]);
 
     return (
-        <AuthGuard roles={['admin', 'member']}>
+        <AuthGuard roles={['admin', 'member', 'visitor']}>
             <AppShell>
                 {loading ? <FeedLoader count={3} /> : null}
                 {!loading && status ? (
@@ -203,6 +211,7 @@ export default function FeedPage() {
                                     }
                                     onPostDeleted={() => refreshLoaded()}
                                     isAdminViewer={isAdminViewer}
+                                    allowCommenting={viewerRole === 'admin' || viewerRole === 'member'}
                                 />
                             </div>
                         ))}
@@ -232,3 +241,5 @@ export default function FeedPage() {
         </AuthGuard>
     );
 }
+
+

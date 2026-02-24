@@ -469,11 +469,13 @@ export function PostCard({
     targetCommentId = '',
     onPostDeleted,
     isAdminViewer = null,
+    allowCommenting = true,
 }: {
     post: Post;
     targetCommentId?: string;
     onPostDeleted?: (postId: string) => void | Promise<void>;
     isAdminViewer?: boolean | null;
+    allowCommenting?: boolean;
 }) {
     const author = post.author;
     const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
@@ -792,6 +794,10 @@ export function PostCard({
             setStatus('Login required to comment.');
             return;
         }
+        if (!allowCommenting) {
+            setStatus('Visitor accounts can read comments but cannot comment.');
+            return;
+        }
         try {
             if (replyTarget) {
                 const targetComment = commentById.get(replyTarget.commentId);
@@ -839,6 +845,10 @@ export function PostCard({
     async function onToggleCommentLike(commentId: string) {
         if (!canInteract) {
             setStatus('Login required to react to comments.');
+            return;
+        }
+        if (!allowCommenting) {
+            setStatus('Visitor accounts can only like feed posts.');
             return;
         }
         if (busyCommentId === commentId) return;
@@ -970,6 +980,10 @@ export function PostCard({
     }
 
     function onReplyToComment(comment: PostComment) {
+        if (!allowCommenting) {
+            setStatus('Visitor accounts can read comments but cannot reply.');
+            return;
+        }
         if (currentUserId && comment.userId === currentUserId) {
             setStatus('You cannot reply to your own comment.');
             return;
@@ -1090,26 +1104,28 @@ export function PostCard({
                             </p>
                         </div>
                         <div className='mt-2 flex items-center gap-2 pl-1'>
-                            <button
-                                type='button'
-                                onClick={() =>
-                                    void onToggleCommentLike(node.id)
-                                }
-                                disabled={busyCommentId === node.id}
-                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
-                                    node.likedByCurrentUser
-                                        ? 'border-rose-200 bg-rose-50 text-rose-600'
-                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                } disabled:cursor-not-allowed disabled:opacity-60`}
-                                aria-label='React to comment'
-                            >
-                                <HeartIcon
-                                    filled={node.likedByCurrentUser}
-                                    className={`h-3.5 w-3.5 ${node.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
-                                />
-                                <span>{node.likes}</span>
-                            </button>
-                            {!currentUserId || node.userId !== currentUserId ? (
+                            {allowCommenting ? (
+                                <button
+                                    type='button'
+                                    onClick={() =>
+                                        void onToggleCommentLike(node.id)
+                                    }
+                                    disabled={busyCommentId === node.id}
+                                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                                        node.likedByCurrentUser
+                                            ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                    } disabled:cursor-not-allowed disabled:opacity-60`}
+                                    aria-label='React to comment'
+                                >
+                                    <HeartIcon
+                                        filled={node.likedByCurrentUser}
+                                        className={`h-3.5 w-3.5 ${node.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
+                                    />
+                                    <span>{node.likes}</span>
+                                </button>
+                            ) : null}
+                            {allowCommenting && (!currentUserId || node.userId !== currentUserId) ? (
                                 <button
                                     type='button'
                                     onClick={() => onReplyToComment(node)}
@@ -1143,7 +1159,7 @@ export function PostCard({
                                 </button>
                             ) : null}
                         </div>
-                        {isReplyTargetNode ? (
+                        {allowCommenting && isReplyTargetNode ? (
                             <form
                                 className='mt-2 flex gap-2 pl-1'
                                 onSubmit={(event) => {
@@ -1357,7 +1373,7 @@ export function PostCard({
                         <span>Comment</span>
                     </button>
                 </div>
-                {!replyTarget || !showComments ? (
+                {allowCommenting && (!replyTarget || !showComments) ? (
                     <form
                         className='flex gap-2'
                         onSubmit={(event) => {

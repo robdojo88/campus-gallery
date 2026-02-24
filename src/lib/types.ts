@@ -6,10 +6,37 @@ export interface User {
     id: string;
     name: string;
     email: string;
+    usn?: string;
     role: UserRole;
     avatarUrl: string;
     incognitoAlias?: string;
     createdAt: string;
+}
+
+export type StudentRegistryStatus = 'active' | 'inactive';
+
+export interface StudentRegistryEntry {
+    id: string;
+    usn: string;
+    firstName: string;
+    lastName: string;
+    fullName: string;
+    course?: string;
+    yearLevel?: number;
+    email: string;
+    status: StudentRegistryStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface StudentRegistryUpsertInput {
+    usn: string;
+    firstName: string;
+    lastName: string;
+    course?: string;
+    yearLevel?: number;
+    email: string;
+    status?: StudentRegistryStatus;
 }
 
 export interface EventFolder {
@@ -129,6 +156,7 @@ export interface SearchUserResult {
     id: string;
     name: string;
     email: string;
+    usn?: string;
     role: UserRole;
     avatarUrl: string;
 }
@@ -189,3 +217,4 @@ export interface ContentReport {
     actionNote?: string;
     createdAt: string;
 }
+

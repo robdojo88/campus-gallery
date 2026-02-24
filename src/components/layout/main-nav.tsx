@@ -457,7 +457,7 @@ export function MainNav() {
                 setUserDisplayName(user.email?.split('@')[0] ?? 'User');
 
                 const metadataRole =
-                    normalizeRole(user.user_metadata?.role) ?? 'member';
+                    normalizeRole(user.user_metadata?.role) ?? 'visitor';
                 setRole((current) => current ?? metadataRole);
                 const [profile, unread] = await Promise.all([
                     getCurrentUserProfile(),
@@ -585,12 +585,20 @@ export function MainNav() {
             void searchGlobalContent(term, { limit: 5 })
                 .then((results) => {
                     if (!active) return;
-                    setSearchResults(results);
+                    const scopedResults =
+                        role === 'visitor'
+                            ? {
+                                  ...results,
+                                  events: [],
+                                  dates: [],
+                              }
+                            : results;
+                    setSearchResults(scopedResults);
                     const total =
-                        results.users.length +
-                        results.events.length +
-                        results.dates.length +
-                        results.posts.length;
+                        scopedResults.users.length +
+                        scopedResults.events.length +
+                        scopedResults.dates.length +
+                        scopedResults.posts.length;
                     if (total === 0) {
                         setSearchStatus('No matches found.');
                     }
@@ -610,7 +618,7 @@ export function MainNav() {
             active = false;
             window.clearTimeout(timer);
         };
-    }, [searchOpen, searchQuery]);
+    }, [role, searchOpen, searchQuery]);
 
     const centerLinks = useMemo(() => {
         if (!role) {
@@ -618,7 +626,9 @@ export function MainNav() {
         }
         if (role === 'visitor') {
             return links.filter((link) =>
-                ['/camera', '/visitor-gallery', '/reviews'].includes(link.href),
+                ['/feed', '/camera', '/visitor-gallery', '/reviews'].includes(
+                    link.href,
+                ),
             );
         }
         return links;
@@ -1236,3 +1246,4 @@ export function MainNav() {
         </header>
     );
 }
+
