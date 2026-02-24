@@ -9,7 +9,10 @@ import {
     createIncognitoPost,
     fetchIncognitoPostComments,
     fetchIncognitoPosts,
+    getCurrentUserProfile,
+    setCurrentUserIncognitoAlias,
     subscribeToIncognito,
+    toggleIncognitoCommentLike,
     toggleIncognitoPostLike,
 } from '@/lib/supabase';
 import type { PostComment } from '@/lib/types';
@@ -94,6 +97,7 @@ export default function IncognitoPage() {
             id: string;
             content: string;
             createdAt: string;
+            authorAlias: string;
             authorId?: string;
             likes: number;
             comments: number;
@@ -106,8 +110,15 @@ export default function IncognitoPage() {
     const [status, setStatus] = useState('Loading anonymous posts...');
     const [posting, setPosting] = useState(false);
     const [busyPostId, setBusyPostId] = useState('');
+    const [busyCommentId, setBusyCommentId] = useState('');
+    const [viewerRole, setViewerRole] = useState<'admin' | 'member' | 'visitor' | null>(null);
+    const [incognitoAlias, setIncognitoAlias] = useState('');
+    const [aliasInput, setAliasInput] = useState('');
+    const [aliasSaving, setAliasSaving] = useState(false);
+    const [profileLoading, setProfileLoading] = useState(true);
     const openCommentsRef = useRef<Record<string, boolean>>({});
     const focusedPostIdRef = useRef('');
+    const aliasRequired = viewerRole === 'member' && !incognitoAlias;
 
     useEffect(() => {
         openCommentsRef.current = openCommentsByPost;
@@ -139,6 +150,22 @@ export default function IncognitoPage() {
         }
     }
 
+    async function loadViewerProfile() {
+        setProfileLoading(true);
+        try {
+            const profile = await getCurrentUserProfile();
+            setViewerRole(profile?.role ?? null);
+            const alias = (profile?.incognitoAlias ?? '').trim();
+            setIncognitoAlias(alias);
+            setAliasInput(alias);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to load your profile.';
+            setStatus(message);
+        } finally {
+            setProfileLoading(false);
+        }
+    }
+
     async function loadComments(postId: string) {
         try {
             const rows = await fetchIncognitoPostComments(postId);
@@ -152,7 +179,7 @@ export default function IncognitoPage() {
     useEffect(() => {
         let mounted = true;
         async function init() {
-            await loadPosts();
+            await Promise.all([loadViewerProfile(), loadPosts()]);
             if (!mounted) return;
         }
 
@@ -192,12 +219,16 @@ export default function IncognitoPage() {
 
     async function submit() {
         if (posting) return;
+        if (aliasRequired) {
+            setStatus('Set your incognito alias first before posting.');
+            return;
+        }
         setPosting(true);
         try {
             await createIncognitoPost(content);
             setContent('');
             await loadPosts();
-            setStatus('Anonymous post submitted.');
+            setStatus('Incognito post submitted.');
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to post anonymously.';
             setStatus(message);
@@ -231,6 +262,10 @@ export default function IncognitoPage() {
     async function submitComment(postId: string) {
         const value = (commentInputByPost[postId] ?? '').trim();
         if (!value || busyPostId) return;
+        if (aliasRequired) {
+            setStatus('Set your incognito alias first before commenting.');
+            return;
+        }
 
         setBusyPostId(postId);
         try {
@@ -246,6 +281,37 @@ export default function IncognitoPage() {
         }
     }
 
+    async function onToggleCommentLike(postId: string, commentId: string) {
+        if (busyCommentId === commentId || busyPostId === postId) return;
+        setBusyCommentId(commentId);
+        try {
+            await toggleIncognitoCommentLike(commentId);
+            await loadComments(postId);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to update comment reaction.';
+            setStatus(message);
+        } finally {
+            setBusyCommentId('');
+        }
+    }
+
+    async function onSaveAlias() {
+        if (!aliasInput.trim() || aliasSaving || !aliasRequired) return;
+        setAliasSaving(true);
+        try {
+            const savedAlias = await setCurrentUserIncognitoAlias(aliasInput);
+            setIncognitoAlias(savedAlias);
+            setAliasInput(savedAlias);
+            setStatus('Incognito alias saved. You can now post.');
+            await loadPosts({ keepStatus: true });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to save incognito alias.';
+            setStatus(message);
+        } finally {
+            setAliasSaving(false);
+        }
+    }
+
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
@@ -255,17 +321,49 @@ export default function IncognitoPage() {
                     description='Members can post anonymously. Public view hides identity while admins can moderate safely.'
                 />
                 <section className='mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
+                    {aliasRequired ? (
+                        <div className='mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3'>
+                            <p className='text-sm font-semibold text-amber-900'>Set your Incognito alias first</p>
+                            <p className='mt-1 text-xs text-amber-800'>
+                                This is required before posting. Once saved, it is locked and only admin/developer can change it.
+                            </p>
+                            <div className='mt-2 flex gap-2'>
+                                <input
+                                    value={aliasInput}
+                                    onChange={(event) => setAliasInput(event.target.value)}
+                                    placeholder='Choose incognito alias'
+                                    minLength={3}
+                                    maxLength={24}
+                                    pattern='[A-Za-z0-9._-]{3,24}'
+                                    className='flex-1 rounded-xl border border-amber-200 px-3 py-2 text-sm outline-none focus:border-amber-400'
+                                />
+                                <button
+                                    type='button'
+                                    onClick={() => void onSaveAlias()}
+                                    disabled={aliasSaving || profileLoading}
+                                    className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                                >
+                                    {aliasSaving ? 'Saving...' : 'Set Alias'}
+                                </button>
+                            </div>
+                        </div>
+                    ) : viewerRole === 'member' && incognitoAlias ? (
+                        <p className='mb-3 text-xs text-slate-500'>
+                            Posting as <span className='font-semibold text-slate-800'>{incognitoAlias}</span>. Alias is locked.
+                        </p>
+                    ) : null}
                     <div className='flex gap-2'>
                         <input
                             value={content}
                             onChange={(event) => setContent(event.target.value)}
                             placeholder='Write an anonymous note'
-                            className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm'
+                            disabled={aliasRequired || profileLoading}
+                            className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-100'
                         />
                         <button
                             type='button'
                             onClick={() => void submit()}
-                            disabled={posting}
+                            disabled={posting || aliasRequired || profileLoading}
                             className='rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                         >
                             {posting ? 'Posting...' : 'Post'}
@@ -282,7 +380,7 @@ export default function IncognitoPage() {
                             className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
                         >
                             <div className='flex items-center justify-between gap-3'>
-                                <p className='text-sm font-semibold text-slate-800'>Anonymous</p>
+                                <p className='text-sm font-semibold text-slate-800'>{post.authorAlias || 'Anonymous'}</p>
                                 <p className='text-xs text-slate-500'>{formatIncognitoTimestamp(post.createdAt)}</p>
                             </div>
                             {post.authorId ? <p className='text-xs text-slate-500'>Admin view: {post.authorId}</p> : null}
@@ -335,8 +433,25 @@ export default function IncognitoPage() {
                                         <div className='space-y-2'>
                                             {(commentsByPost[post.id] ?? []).map((comment) => (
                                                 <div key={comment.id} className='rounded-xl bg-slate-50 px-3 py-2 text-xs'>
-                                                    <p className='font-semibold text-slate-700'>Anonymous</p>
+                                                    <p className='font-semibold text-slate-700'>{comment.authorName}</p>
                                                     <p className='mt-1 text-slate-700'>{comment.content}</p>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => void onToggleCommentLike(post.id, comment.id)}
+                                                        disabled={busyCommentId === comment.id || busyPostId === post.id}
+                                                        className={`mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                                                            comment.likedByCurrentUser
+                                                                ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                                                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                                                        aria-label='React to comment'
+                                                    >
+                                                        <HeartIcon
+                                                            filled={comment.likedByCurrentUser}
+                                                            className={`h-3.5 w-3.5 ${comment.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
+                                                        />
+                                                        <span>{comment.likes}</span>
+                                                    </button>
                                                 </div>
                                             ))}
                                         </div>

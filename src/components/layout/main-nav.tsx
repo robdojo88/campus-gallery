@@ -387,7 +387,8 @@ export function MainNav() {
     );
     const [searchStatus, setSearchStatus] = useState('');
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const profileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+    const profileMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
+    const profileMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
     const profileMenuPanelRef = useRef<HTMLDivElement | null>(null);
     const searchWrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -402,7 +403,17 @@ export function MainNav() {
         if (!profileMenuOpen) return;
 
         function updateMenuPosition() {
-            const button = profileMenuButtonRef.current;
+            const desktopButton = profileMenuDesktopButtonRef.current;
+            const mobileButton = profileMenuMobileButtonRef.current;
+            const button =
+                (desktopButton && desktopButton.offsetParent !== null
+                    ? desktopButton
+                    : null) ??
+                (mobileButton && mobileButton.offsetParent !== null
+                    ? mobileButton
+                    : null) ??
+                desktopButton ??
+                mobileButton;
             if (!button || typeof window === 'undefined') return;
             const rect = button.getBoundingClientRect();
             setProfileMenuPosition({
@@ -413,7 +424,8 @@ export function MainNav() {
 
         function onPointerDown(event: PointerEvent) {
             const target = event.target as Node;
-            if (profileMenuButtonRef.current?.contains(target)) return;
+            if (profileMenuDesktopButtonRef.current?.contains(target)) return;
+            if (profileMenuMobileButtonRef.current?.contains(target)) return;
             if (profileMenuPanelRef.current?.contains(target)) return;
             setProfileMenuOpen(false);
         }
@@ -945,7 +957,7 @@ export function MainNav() {
                             </Link>
                             <div className='relative'>
                                 <button
-                                    ref={profileMenuButtonRef}
+                                    ref={profileMenuDesktopButtonRef}
                                     type='button'
                                     onClick={() =>
                                         setProfileMenuOpen((current) => !current)
@@ -1066,7 +1078,7 @@ export function MainNav() {
                             />
                         </Link>
                         <button
-                            ref={profileMenuButtonRef}
+                            ref={profileMenuMobileButtonRef}
                             type='button'
                             onClick={() =>
                                 setProfileMenuOpen((current) => !current)

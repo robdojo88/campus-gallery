@@ -10,6 +10,7 @@ export function RegisterForm() {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [role, setRole] = useState<'member' | 'visitor'>('member');
+    const [incognitoAlias, setIncognitoAlias] = useState('');
     const [password, setPassword] = useState('');
     const [status, setStatus] = useState('');
     const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
@@ -18,11 +19,21 @@ export function RegisterForm() {
 
     async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault();
+        if (role === 'member' && !incognitoAlias.trim()) {
+            setStatus('Incognito alias is required for campus members.');
+            return;
+        }
         setPending(true);
         setStatus('');
         setNeedsEmailConfirmation(false);
         try {
-            const result = await signUpWithEmail({ name, email, password, role });
+            const result = await signUpWithEmail({
+                name,
+                email,
+                password,
+                role,
+                incognitoAlias: role === 'member' ? incognitoAlias : undefined,
+            });
             if (!result.session) {
                 setNeedsEmailConfirmation(true);
                 setStatus('Registration successful. Check your inbox (and spam) for the confirmation email.');
@@ -89,12 +100,35 @@ export function RegisterForm() {
                     />
                     <select
                         value={role}
-                        onChange={(event) => setRole(event.target.value as 'member' | 'visitor')}
+                        onChange={(event) => {
+                            const nextRole = event.target.value as 'member' | 'visitor';
+                            setRole(nextRole);
+                            if (nextRole === 'visitor') {
+                                setIncognitoAlias('');
+                            }
+                        }}
                         className='w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                     >
                         <option value='member'>Campus Member</option>
                         <option value='visitor'>Visitor</option>
                     </select>
+                    {role === 'member' ? (
+                        <>
+                            <input
+                                placeholder='Incognito Alias'
+                                value={incognitoAlias}
+                                onChange={(event) => setIncognitoAlias(event.target.value)}
+                                required
+                                minLength={3}
+                                maxLength={24}
+                                pattern='[A-Za-z0-9._-]{3,24}'
+                                className='w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
+                            />
+                            <p className='text-xs text-slate-500'>
+                                Required for Incognito posts. This alias cannot be changed in-app after signup.
+                            </p>
+                        </>
+                    ) : null}
                     <input
                         type='password'
                         placeholder='Password'

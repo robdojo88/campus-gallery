@@ -51,6 +51,8 @@ export interface FreedomWallComment {
     userId: string;
     parentId?: string;
     content: string;
+    likes: number;
+    likedByCurrentUser: boolean;
     createdAt: string;
     authorName: string;
 }
@@ -88,6 +90,8 @@ export interface PostComment {
     postId: string;
     userId: string;
     content: string;
+    likes: number;
+    likedByCurrentUser: boolean;
     createdAt: string;
     authorName: string;
 }

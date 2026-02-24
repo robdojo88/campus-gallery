@@ -1,13 +1,22 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type TouchEvent,
+} from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
     addPostComment,
     fetchPostEngagement,
     fetchPostCommentsPage,
     getSessionUser,
     subscribeToPostEngagement,
+    togglePostCommentLike,
     togglePostLike,
 } from '@/lib/supabase';
 import type { Post, PostComment } from '@/lib/types';
@@ -54,7 +63,13 @@ function formatFeedTimestamp(createdAt: string): string {
     return `${dateLabel} at ${timeLabel}`;
 }
 
-function HeartIcon({ filled = false, className = 'h-4 w-4' }: { filled?: boolean; className?: string }) {
+function HeartIcon({
+    filled = false,
+    className = 'h-4 w-4',
+}: {
+    filled?: boolean;
+    className?: string;
+}) {
     return (
         <svg
             viewBox='0 0 24 24'
@@ -100,8 +115,17 @@ function PostImageGrid({
 
     if (total === 1) {
         return (
-            <button type='button' onClick={() => onOpen(0)} className='relative block h-[58svh] w-full overflow-hidden md:h-[60vh]'>
-                <Image src={images[0]} alt='Post image 1' fill className='object-cover' />
+            <button
+                type='button'
+                onClick={() => onOpen(0)}
+                className='relative block h-[58svh] w-full overflow-hidden md:h-[60vh]'
+            >
+                <Image
+                    src={images[0]}
+                    alt='Post image 1'
+                    fill
+                    className='object-cover'
+                />
             </button>
         );
     }
@@ -110,8 +134,18 @@ function PostImageGrid({
         return (
             <div className='grid h-[58svh] grid-cols-2 gap-1 md:h-[60vh]'>
                 {images.slice(0, 2).map((image, index) => (
-                    <button key={image} type='button' onClick={() => onOpen(index)} className='relative overflow-hidden'>
-                        <Image src={image} alt={`Post image ${index + 1}`} fill className='object-cover' />
+                    <button
+                        key={image}
+                        type='button'
+                        onClick={() => onOpen(index)}
+                        className='relative overflow-hidden'
+                    >
+                        <Image
+                            src={image}
+                            alt={`Post image ${index + 1}`}
+                            fill
+                            className='object-cover'
+                        />
                     </button>
                 ))}
             </div>
@@ -121,14 +155,41 @@ function PostImageGrid({
     if (total === 3) {
         return (
             <div className='grid h-[58svh] grid-cols-[2fr_1fr] gap-1 md:h-[60vh]'>
-                <button type='button' onClick={() => onOpen(0)} className='relative row-span-2 overflow-hidden'>
-                    <Image src={images[0]} alt='Post image 1' fill className='object-cover' />
+                <button
+                    type='button'
+                    onClick={() => onOpen(0)}
+                    className='relative row-span-2 overflow-hidden'
+                >
+                    <Image
+                        src={images[0]}
+                        alt='Post image 1'
+                        fill
+                        className='object-cover'
+                    />
                 </button>
-                <button type='button' onClick={() => onOpen(1)} className='relative overflow-hidden'>
-                    <Image src={images[1]} alt='Post image 2' fill className='object-cover' />
+                <button
+                    type='button'
+                    onClick={() => onOpen(1)}
+                    className='relative overflow-hidden'
+                >
+                    <Image
+                        src={images[1]}
+                        alt='Post image 2'
+                        fill
+                        className='object-cover'
+                    />
                 </button>
-                <button type='button' onClick={() => onOpen(2)} className='relative overflow-hidden'>
-                    <Image src={images[2]} alt='Post image 3' fill className='object-cover' />
+                <button
+                    type='button'
+                    onClick={() => onOpen(2)}
+                    className='relative overflow-hidden'
+                >
+                    <Image
+                        src={images[2]}
+                        alt='Post image 3'
+                        fill
+                        className='object-cover'
+                    />
                 </button>
             </div>
         );
@@ -139,8 +200,18 @@ function PostImageGrid({
             {images.slice(0, 4).map((image, index) => {
                 const isLastVisible = index === 3;
                 return (
-                    <button key={image} type='button' onClick={() => onOpen(index)} className='relative overflow-hidden'>
-                        <Image src={image} alt={`Post image ${index + 1}`} fill className='object-cover' />
+                    <button
+                        key={image}
+                        type='button'
+                        onClick={() => onOpen(index)}
+                        className='relative overflow-hidden'
+                    >
+                        <Image
+                            src={image}
+                            alt={`Post image ${index + 1}`}
+                            fill
+                            className='object-cover'
+                        />
                         {isLastVisible && moreCount > 0 ? (
                             <span className='absolute inset-0 grid place-items-center bg-black/55 text-2xl font-bold text-white'>
                                 +{moreCount} more
@@ -216,19 +287,25 @@ function Lightbox({
             <div className='absolute left-4 top-[calc(env(safe-area-inset-top)+0.75rem)] z-30 flex items-center gap-2'>
                 <button
                     type='button'
-                    onClick={() => setZoom((value) => Math.max(1, value - 0.25))}
+                    onClick={() =>
+                        setZoom((value) => Math.max(1, value - 0.25))
+                    }
                     className='rounded-full bg-white/20 px-3 py-1 text-sm font-semibold text-white hover:bg-white/30'
                 >
                     -
                 </button>
                 <button
                     type='button'
-                    onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
+                    onClick={() =>
+                        setZoom((value) => Math.min(3, value + 0.25))
+                    }
                     className='rounded-full bg-white/20 px-3 py-1 text-sm font-semibold text-white hover:bg-white/30'
                 >
                     +
                 </button>
-                <span className='text-xs font-semibold text-white'>{Math.round(zoom * 100)}%</span>
+                <span className='text-xs font-semibold text-white'>
+                    {Math.round(zoom * 100)}%
+                </span>
             </div>
             {canPrev ? (
                 <button
@@ -254,15 +331,70 @@ function Lightbox({
                 onTouchStart={onTouchStart}
                 onTouchEnd={onTouchEnd}
             >
-                <div className='relative max-h-full max-w-full' onClick={(event) => event.stopPropagation()}>
-                    {imageLoading ? (
-                        <div className='absolute inset-0 z-20 grid place-items-center bg-black/45'>
-                            <div className='flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-xs font-semibold text-white'>
-                                <span className='h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white' />
-                                Loading image...
-                            </div>
-                        </div>
-                    ) : null}
+                <div
+                    className='relative max-h-full max-w-full'
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    <AnimatePresence>
+                        {imageLoading ? (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.22, ease: 'easeOut' }}
+                                className='absolute inset-0 z-20 grid place-items-center bg-black/40 backdrop-blur-sm'
+                            >
+                                <motion.div
+                                    initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                                    transition={{
+                                        duration: 0.26,
+                                        ease: 'easeOut',
+                                    }}
+                                    className='flex min-w-[220px] flex-col items-center gap-3 rounded-2xl border border-white/20 bg-white/10 px-5 py-4 shadow-[0_20px_45px_-25px_rgba(0,0,0,0.85)]'
+                                >
+                                    <div className='relative h-10 w-10'>
+                                        <motion.span
+                                            className='absolute inset-0 rounded-full border border-cyan-200/35'
+                                            animate={{
+                                                scale: [1, 1.25],
+                                                opacity: [0.8, 0],
+                                            }}
+                                            transition={{
+                                                duration: 1.1,
+                                                ease: 'easeOut',
+                                                repeat: Number.POSITIVE_INFINITY,
+                                            }}
+                                        />
+                                        <motion.span
+                                            className='absolute inset-0 rounded-full border-2 border-transparent border-r-sky-200 border-t-cyan-200'
+                                            animate={{ rotate: 360 }}
+                                            transition={{
+                                                duration: 0.9,
+                                                ease: 'linear',
+                                                repeat: Number.POSITIVE_INFINITY,
+                                            }}
+                                        />
+                                    </div>
+                                    <div className='h-1.5 w-28 overflow-hidden '>
+                                        <motion.span
+                                            className='block h-full w-12 rounded-full bg-linear-to-r from-cyan-200 via-sky-200 to-indigo-200'
+                                            animate={{ x: [-52, 116] }}
+                                            transition={{
+                                                duration: 1.05,
+                                                ease: 'easeInOut',
+                                                repeat: Number.POSITIVE_INFINITY,
+                                            }}
+                                        />
+                                    </div>
+                                    <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-white/90'>
+                                        Loading
+                                    </p>
+                                </motion.div>
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
                     <Image
                         src={currentSrc}
                         alt={`Preview ${index + 1}`}
@@ -283,7 +415,9 @@ export function PostCard({ post }: { post: Post }) {
     const author = post.author;
     const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
     const postedAt = formatFeedTimestamp(post.createdAt);
-    const postMeta = post.eventName ? `${postedAt} • ${post.eventName}` : postedAt;
+    const postMeta = post.eventName
+        ? `${postedAt} • ${post.eventName}`
+        : postedAt;
     const [liked, setLiked] = useState(false);
     const [likesCount, setLikesCount] = useState(post.likes);
     const [commentsCount, setCommentsCount] = useState(post.comments);
@@ -296,13 +430,19 @@ export function PostCard({ post }: { post: Post }) {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [commentsLoading, setCommentsLoading] = useState(false);
     const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
-    const [commentsCursor, setCommentsCursor] = useState<string | undefined>(undefined);
+    const [busyCommentId, setBusyCommentId] = useState('');
+    const [commentsCursor, setCommentsCursor] = useState<string | undefined>(
+        undefined,
+    );
     const [commentsHasMore, setCommentsHasMore] = useState(false);
     const commentsContainerRef = useRef<HTMLDivElement | null>(null);
     const commentsAnchorRef = useRef<HTMLDivElement | null>(null);
     const loadedCommentsCountRef = useRef(0);
 
-    const images = useMemo(() => (post.images.length > 0 ? post.images : [post.imageUrl]), [post.imageUrl, post.images]);
+    const images = useMemo(
+        () => (post.images.length > 0 ? post.images : [post.imageUrl]),
+        [post.imageUrl, post.images],
+    );
 
     const refreshEngagement = useCallback(async () => {
         const engagement = await fetchPostEngagement(post.id);
@@ -325,7 +465,10 @@ export function PostCard({ post }: { post: Post }) {
             setCommentsCursor(page.nextCursor);
             setCommentsHasMore(page.hasMore);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load comments.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to load comments.';
             setStatus(message);
         } finally {
             setCommentsLoading(false);
@@ -333,7 +476,10 @@ export function PostCard({ post }: { post: Post }) {
     }, [post.id]);
 
     const refreshLoadedComments = useCallback(async () => {
-        const loadedCount = Math.max(COMMENTS_INITIAL_LIMIT, loadedCommentsCountRef.current || COMMENTS_INITIAL_LIMIT);
+        const loadedCount = Math.max(
+            COMMENTS_INITIAL_LIMIT,
+            loadedCommentsCountRef.current || COMMENTS_INITIAL_LIMIT,
+        );
         const page = await fetchPostCommentsPage(post.id, {
             limit: loadedCount,
         });
@@ -343,7 +489,13 @@ export function PostCard({ post }: { post: Post }) {
     }, [post.id]);
 
     const loadMoreComments = useCallback(async () => {
-        if (!showComments || commentsLoadingMore || !commentsHasMore || !commentsCursor) return;
+        if (
+            !showComments ||
+            commentsLoadingMore ||
+            !commentsHasMore ||
+            !commentsCursor
+        )
+            return;
         setCommentsLoadingMore(true);
         try {
             const page = await fetchPostCommentsPage(post.id, {
@@ -352,18 +504,29 @@ export function PostCard({ post }: { post: Post }) {
             });
             setComments((prev) => {
                 const existingIds = new Set(prev.map((comment) => comment.id));
-                const next = page.items.filter((comment) => !existingIds.has(comment.id));
+                const next = page.items.filter(
+                    (comment) => !existingIds.has(comment.id),
+                );
                 return [...prev, ...next];
             });
             setCommentsCursor(page.nextCursor);
             setCommentsHasMore(page.hasMore);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load more comments.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to load more comments.';
             setStatus(message);
         } finally {
             setCommentsLoadingMore(false);
         }
-    }, [commentsCursor, commentsHasMore, commentsLoadingMore, post.id, showComments]);
+    }, [
+        commentsCursor,
+        commentsHasMore,
+        commentsLoadingMore,
+        post.id,
+        showComments,
+    ]);
 
     useEffect(() => {
         let mounted = true;
@@ -391,15 +554,20 @@ export function PostCard({ post }: { post: Post }) {
 
         const unsubscribe = subscribeToPostEngagement(post.id, () => {
             void refreshEngagement().catch((error: unknown) => {
-                const message = error instanceof Error ? error.message : 'Failed to refresh engagement.';
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to refresh engagement.';
                 setStatus(message);
             });
             if (showComments) {
-                void refreshLoadedComments()
-                    .catch((error: unknown) => {
-                        const message = error instanceof Error ? error.message : 'Failed to refresh comments.';
-                        setStatus(message);
-                    });
+                void refreshLoadedComments().catch((error: unknown) => {
+                    const message =
+                        error instanceof Error
+                            ? error.message
+                            : 'Failed to refresh comments.';
+                    setStatus(message);
+                });
             }
         });
 
@@ -415,7 +583,13 @@ export function PostCard({ post }: { post: Post }) {
     }, [loadInitialComments, showComments]);
 
     useEffect(() => {
-        if (!showComments || !commentsHasMore || !commentsContainerRef.current || !commentsAnchorRef.current) return;
+        if (
+            !showComments ||
+            !commentsHasMore ||
+            !commentsContainerRef.current ||
+            !commentsAnchorRef.current
+        )
+            return;
         const observer = new IntersectionObserver(
             (entries) => {
                 if (entries.some((entry) => entry.isIntersecting)) {
@@ -443,7 +617,10 @@ export function PostCard({ post }: { post: Post }) {
             await refreshEngagement();
             setStatus('');
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to update like.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to update like.';
             setStatus(message);
         }
     }
@@ -461,8 +638,34 @@ export function PostCard({ post }: { post: Post }) {
             await loadInitialComments();
             setStatus('');
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to add comment.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to add comment.';
             setStatus(message);
+        }
+    }
+
+    async function onToggleCommentLike(commentId: string) {
+        if (!canInteract) {
+            setStatus('Login required to react to comments.');
+            return;
+        }
+        if (busyCommentId === commentId) return;
+
+        setBusyCommentId(commentId);
+        try {
+            await togglePostCommentLike(commentId);
+            await Promise.all([refreshEngagement(), refreshLoadedComments()]);
+            setStatus('');
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to update comment reaction.';
+            setStatus(message);
+        } finally {
+            setBusyCommentId('');
         }
     }
 
@@ -472,7 +675,9 @@ export function PostCard({ post }: { post: Post }) {
     }
 
     function goNextImage() {
-        setActiveImageIndex((current) => Math.min(current + 1, images.length - 1));
+        setActiveImageIndex((current) =>
+            Math.min(current + 1, images.length - 1),
+        );
     }
 
     function goPrevImage() {
@@ -486,16 +691,30 @@ export function PostCard({ post }: { post: Post }) {
         <article className='flex min-h-[90svh] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:min-h-[90vh]'>
             <div className='p-4 md:p-5'>
                 <div className='flex items-center gap-3'>
-                    <button type='button' onClick={() => openLightbox(0)} className='h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                    <button
+                        type='button'
+                        onClick={() => openLightbox(0)}
+                        className='h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100'
+                    >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={avatarUrl} alt={author?.name ?? 'User avatar'} className='h-full w-full object-cover' />
+                        <img
+                            src={avatarUrl}
+                            alt={author?.name ?? 'User avatar'}
+                            className='h-full w-full object-cover'
+                        />
                     </button>
                     <div className='min-w-0'>
-                        <p className='truncate text-sm font-semibold text-slate-900'>{author?.name ?? 'Unknown'}</p>
+                        <p className='truncate text-sm font-semibold text-slate-900'>
+                            {author?.name ?? 'Unknown'}
+                        </p>
                         <p className='text-xs text-slate-500'>{postMeta}</p>
                     </div>
                 </div>
-                {post.caption ? <p className='mt-3 text-sm text-slate-700'>{post.caption}</p> : null}
+                {post.caption ? (
+                    <p className='mt-3 text-sm text-slate-700'>
+                        {post.caption}
+                    </p>
+                ) : null}
             </div>
             <PostImageGrid images={images} onOpen={openLightbox} />
             <div className='space-y-3 p-4 md:p-5'>
@@ -514,20 +733,29 @@ export function PostCard({ post }: { post: Post }) {
                         type='button'
                         onClick={() => void onToggleLike()}
                         className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                            liked ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            liked
+                                ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                         }`}
                     >
-                        <HeartIcon filled={liked} className={`h-4 w-4 ${liked ? 'text-rose-600' : 'text-slate-500'}`} />
+                        <HeartIcon
+                            filled={liked}
+                            className={`h-4 w-4 ${liked ? 'text-rose-600' : 'text-slate-500'}`}
+                        />
                         <span>Like</span>
                     </button>
                     <button
                         type='button'
                         onClick={() => setShowComments((prev) => !prev)}
                         className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                            showComments ? 'border-cyan-200 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            showComments
+                                ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                         }`}
                     >
-                        <CommentIcon className={`h-4 w-4 ${showComments ? 'text-cyan-700' : 'text-slate-500'}`} />
+                        <CommentIcon
+                            className={`h-4 w-4 ${showComments ? 'text-cyan-700' : 'text-slate-500'}`}
+                        />
                         <span>Comment</span>
                     </button>
                 </div>
@@ -540,7 +768,9 @@ export function PostCard({ post }: { post: Post }) {
                 >
                     <input
                         value={commentInput}
-                        onChange={(event) => setCommentInput(event.target.value)}
+                        onChange={(event) =>
+                            setCommentInput(event.target.value)
+                        }
                         onKeyDown={(event) => {
                             if (event.key !== 'Enter') return;
                             if (event.nativeEvent.isComposing) return;
@@ -558,7 +788,10 @@ export function PostCard({ post }: { post: Post }) {
                     </button>
                 </form>
                 {showComments ? (
-                    <div ref={commentsContainerRef} className='max-h-72 space-y-2 overflow-y-auto rounded-2xl bg-slate-50 p-3'>
+                    <div
+                        ref={commentsContainerRef}
+                        className='max-h-72 space-y-2 overflow-y-auto rounded-2xl bg-slate-50 p-3'
+                    >
                         {commentsLoading ? (
                             <div className='space-y-2'>
                                 <div className='h-9 w-full animate-pulse rounded-xl bg-slate-200' />
@@ -566,17 +799,55 @@ export function PostCard({ post }: { post: Post }) {
                                 <div className='h-9 w-2/3 animate-pulse rounded-xl bg-slate-200' />
                             </div>
                         ) : comments.length === 0 ? (
-                            <p className='text-xs text-slate-500'>No comments yet.</p>
+                            <p className='text-xs text-slate-500'>
+                                No comments yet.
+                            </p>
                         ) : (
                             comments.map((comment) => (
-                                <div key={comment.id} className='rounded-xl bg-white px-3 py-2 text-xs'>
-                                    <p className='font-semibold text-slate-700'>{comment.authorName}</p>
-                                    <p className='mt-1 text-slate-700'>{comment.content}</p>
+                                <div
+                                    key={comment.id}
+                                    className='rounded-xl bg-white px-3 py-2 text-xs'
+                                >
+                                    <p className='font-semibold text-slate-700'>
+                                        {comment.authorName}
+                                    </p>
+                                    <p className='mt-1 text-slate-700'>
+                                        {comment.content}
+                                    </p>
+                                    <button
+                                        type='button'
+                                        onClick={() =>
+                                            void onToggleCommentLike(comment.id)
+                                        }
+                                        disabled={busyCommentId === comment.id}
+                                        className={`mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                                            comment.likedByCurrentUser
+                                                ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                                        aria-label='React to comment'
+                                    >
+                                        <HeartIcon
+                                            filled={comment.likedByCurrentUser}
+                                            className={`h-3.5 w-3.5 ${comment.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
+                                        />
+                                        <span>{comment.likes}</span>
+                                    </button>
                                 </div>
                             ))
                         )}
-                        {commentsHasMore ? <div ref={commentsAnchorRef} className='h-2 w-full' aria-hidden='true' /> : null}
-                        {commentsLoadingMore ? <p className='text-center text-xs text-slate-500'>Loading more comments...</p> : null}
+                        {commentsHasMore ? (
+                            <div
+                                ref={commentsAnchorRef}
+                                className='h-2 w-full'
+                                aria-hidden='true'
+                            />
+                        ) : null}
+                        {commentsLoadingMore ? (
+                            <p className='text-center text-xs text-slate-500'>
+                                Loading more comments...
+                            </p>
+                        ) : null}
                         {commentsHasMore && !commentsLoadingMore ? (
                             <button
                                 type='button'
@@ -588,7 +859,9 @@ export function PostCard({ post }: { post: Post }) {
                         ) : null}
                     </div>
                 ) : null}
-                {status ? <p className='text-xs text-slate-500'>{status}</p> : null}
+                {status ? (
+                    <p className='text-xs text-slate-500'>{status}</p>
+                ) : null}
             </div>
             {lightboxOpen ? (
                 <Lightbox
@@ -605,4 +878,3 @@ export function PostCard({ post }: { post: Post }) {
         </article>
     );
 }
-

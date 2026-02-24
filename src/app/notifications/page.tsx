@@ -129,12 +129,6 @@ function formatCompactRelativeTime(createdAt: string): string {
 }
 
 function formatActorLabel(group: NotificationGroup): string {
-    if (group.isAnonymous) {
-        return group.actorCount > 1
-            ? `${group.actorCount} anonymous users`
-            : 'An anonymous user';
-    }
-
     const names = group.actorNames.slice(0, 2);
     const others = Math.max(0, group.actorCount - names.length);
 
@@ -254,13 +248,15 @@ export default function NotificationsPage() {
             if (!grouped.has(key)) {
                 const actorNameById = new Map<string, string>();
                 const actorIdSet = new Set<string>();
+                const actorName = item.actorName?.trim();
 
                 if (item.actorUserId) {
                     actorIdSet.add(item.actorUserId);
-                    const actorName = item.actorName?.trim();
-                    if (actorName) {
-                        actorNameById.set(item.actorUserId, actorName);
-                    }
+                }
+                if (actorName) {
+                    const actorKey =
+                        item.actorUserId ?? `name:${actorName.toLowerCase()}`;
+                    actorNameById.set(actorKey, actorName);
                 }
 
                 grouped.set(key, {
@@ -301,10 +297,13 @@ export default function NotificationsPage() {
 
             if (item.actorUserId) {
                 group.actorIdSet.add(item.actorUserId);
-                const actorName = item.actorName?.trim();
-                if (actorName) {
-                    group.actorNameById.set(item.actorUserId, actorName);
-                }
+            }
+
+            const actorName = item.actorName?.trim();
+            if (actorName) {
+                const actorKey =
+                    item.actorUserId ?? `name:${actorName.toLowerCase()}`;
+                group.actorNameById.set(actorKey, actorName);
             }
 
             if (createdAtMs > group.createdAtMs) {
@@ -327,9 +326,12 @@ export default function NotificationsPage() {
                 body: group.body,
                 caption: group.caption || 'none',
                 actorNames: [...group.actorNameById.values()],
-                actorCount: group.isAnonymous
-                    ? group.notificationIds.length
-                    : group.actorIdSet.size,
+                actorCount:
+                    group.actorIdSet.size > 0
+                        ? group.actorIdSet.size
+                        : group.actorNameById.size > 0
+                          ? group.actorNameById.size
+                        : group.notificationIds.length,
                 actorAvatarUrl: group.actorAvatarUrl,
                 isAnonymous: group.isAnonymous,
                 unread: group.unread,

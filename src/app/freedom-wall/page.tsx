@@ -11,6 +11,7 @@ import {
     fetchFreedomPostComments,
     fetchFreedomPosts,
     subscribeToFreedomWall,
+    toggleFreedomCommentLike,
     toggleFreedomPostLike,
 } from '@/lib/supabase';
 import type { FreedomPost, FreedomWallComment } from '@/lib/types';
@@ -40,6 +41,23 @@ function marginStyle(depth: number): CSSProperties {
     return { marginLeft: `${Math.min(depth, 6) * 12}px` };
 }
 
+function HeartIcon({ filled = false, className = 'h-3.5 w-3.5' }: { filled?: boolean; className?: string }) {
+    return (
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={className}
+            fill={filled ? 'currentColor' : 'none'}
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
+            <path d='m12 20.5-1.1-1C5.7 14.8 2 11.5 2 7.4 2 4.2 4.5 2 7.4 2c1.9 0 3.8.9 4.9 2.4C13.5 2.9 15.4 2 17.3 2 20.2 2 22.7 4.2 22.7 7.4c0 4.1-3.7 7.4-8.9 12.1z' />
+        </svg>
+    );
+}
+
 export default function FreedomWallPage() {
     const [targetPostId, setTargetPostId] = useState('');
     const [content, setContent] = useState('');
@@ -56,6 +74,7 @@ export default function FreedomWallPage() {
     const [loading, setLoading] = useState(true);
     const [posting, setPosting] = useState(false);
     const [busyPostId, setBusyPostId] = useState('');
+    const [busyCommentId, setBusyCommentId] = useState('');
     const openCommentsRef = useRef<Record<string, boolean>>({});
     const focusedPostIdRef = useRef('');
 
@@ -229,6 +248,20 @@ export default function FreedomWallPage() {
         setReplyTargetByPost((prev) => ({ ...prev, [postId]: null }));
     }
 
+    async function onToggleCommentLike(postId: string, commentId: string) {
+        if (busyCommentId === commentId || busyPostId === postId) return;
+        setBusyCommentId(commentId);
+        try {
+            await toggleFreedomCommentLike(commentId);
+            await loadComments(postId);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to update comment reaction.';
+            setStatus(message);
+        } finally {
+            setBusyCommentId('');
+        }
+    }
+
     function renderComments(nodes: CommentNode[], postId: string, depth = 0): React.ReactNode {
         return nodes.map((node) => (
             <div key={node.id} className='space-y-2' style={marginStyle(depth)}>
@@ -238,13 +271,32 @@ export default function FreedomWallPage() {
                         <p className='text-[11px] text-slate-500'>{new Date(node.createdAt).toLocaleString()}</p>
                     </div>
                     <p className='mt-1 text-sm text-slate-700'>{node.content}</p>
-                    <button
-                        type='button'
-                        onClick={() => setReplyTarget(postId, node)}
-                        className='mt-2 rounded-lg bg-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-300'
-                    >
-                        Reply
-                    </button>
+                    <div className='mt-2 flex items-center gap-2'>
+                        <button
+                            type='button'
+                            onClick={() => void onToggleCommentLike(postId, node.id)}
+                            disabled={busyCommentId === node.id || busyPostId === postId}
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                                node.likedByCurrentUser
+                                    ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                            } disabled:cursor-not-allowed disabled:opacity-60`}
+                            aria-label='React to comment'
+                        >
+                            <HeartIcon
+                                filled={node.likedByCurrentUser}
+                                className={`h-3.5 w-3.5 ${node.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
+                            />
+                            <span>{node.likes}</span>
+                        </button>
+                        <button
+                            type='button'
+                            onClick={() => setReplyTarget(postId, node)}
+                            className='rounded-lg bg-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-300'
+                        >
+                            Reply
+                        </button>
+                    </div>
                 </article>
                 {node.replies.length > 0 ? <div className='space-y-2'>{renderComments(node.replies, postId, depth + 1)}</div> : null}
             </div>

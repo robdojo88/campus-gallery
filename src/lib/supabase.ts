@@ -64,6 +64,11 @@ type DbCommentRow = {
     content: string;
     created_at: string;
 };
+type DbCommentLikeRow = {
+    id: string;
+    comment_id: string;
+    user_id: string;
+};
 
 type DbFreedomPost = {
     id: string;
@@ -85,6 +90,11 @@ type DbFreedomCommentRow = {
     content: string;
     created_at: string;
 };
+type DbFreedomCommentLikeRow = {
+    id: string;
+    comment_id: string;
+    user_id: string;
+};
 
 type DbIncognitoPost = {
     id: string;
@@ -103,6 +113,11 @@ type DbIncognitoCommentRow = {
     user_id: string;
     content: string;
     created_at: string;
+};
+type DbIncognitoCommentLikeRow = {
+    id: string;
+    comment_id: string;
+    user_id: string;
 };
 
 type DbNotification = {
@@ -419,6 +434,15 @@ function isIncognitoAliasConflictError(error: unknown): boolean {
     return message.includes('incognito_alias') || message.includes('users_incognito_alias_lower_unique');
 }
 
+function isIncognitoAliasRequiredError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message.toLowerCase()
+            : '';
+    return message.includes('incognito alias is required for members');
+}
+
 function isFreedomCommentPolicyRecursionError(error: unknown): boolean {
     if (!error || typeof error !== 'object') return false;
     const message =
@@ -482,6 +506,18 @@ function isMissingFreedomEngagementTablesError(error: unknown): boolean {
 
 function isMissingIncognitoEngagementTablesError(error: unknown): boolean {
     return isMissingTableError(error, 'incognito_likes') || isMissingTableError(error, 'incognito_comments');
+}
+
+function isMissingFeedCommentLikesTableError(error: unknown): boolean {
+    return isMissingTableError(error, 'comment_likes');
+}
+
+function isMissingFreedomCommentLikesTableError(error: unknown): boolean {
+    return isMissingTableError(error, 'freedom_wall_comment_likes');
+}
+
+function isMissingIncognitoCommentLikesTableError(error: unknown): boolean {
+    return isMissingTableError(error, 'incognito_comment_likes');
 }
 
 function mapPosts(
@@ -566,7 +602,26 @@ export async function getCurrentUserProfile() {
 
     const { data, error } = await supabase.from('users').select('*').eq('id', user.id).maybeSingle<DbUser>();
     if (error) throw toAppError(error);
-    return data ? mapUser(data) : null;
+    if (data) return mapUser(data);
+
+    try {
+        await ensureUserProfile(user);
+    } catch (ensureError) {
+        if (isIncognitoAliasRequiredError(ensureError)) {
+            throw new Error(
+                'Profile row is missing and DB requires alias on member insert. Run the user backfill SQL, then retry.',
+            );
+        }
+        throw toAppError(ensureError);
+    }
+
+    const { data: repaired, error: repairedError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle<DbUser>();
+    if (repairedError) throw toAppError(repairedError);
+    return repaired ? mapUser(repaired) : null;
 }
 
 export async function ensureUserProfile(user: User): Promise<void> {
@@ -690,8 +745,9 @@ export async function setCurrentUserIncognitoAlias(aliasInput: string): Promise<
         .from('users')
         .select('role,incognito_alias')
         .eq('id', user.id)
-        .single<{ role: UserRole; incognito_alias: string | null }>();
+        .maybeSingle<{ role: UserRole; incognito_alias: string | null }>();
     if (profileError) throw toAppError(profileError);
+    if (!profile) throw new Error('Profile not found. Contact admin to restore your account profile row.');
 
     if (profile.role !== 'member') {
         throw new Error('Only campus members can set an incognito alias.');
@@ -716,8 +772,9 @@ export async function setCurrentUserIncognitoAlias(aliasInput: string): Promise<
         .from('users')
         .select('incognito_alias')
         .eq('id', user.id)
-        .single<{ incognito_alias: string | null }>();
+        .maybeSingle<{ incognito_alias: string | null }>();
     if (updatedProfileError) throw toAppError(updatedProfileError);
+    if (!updatedProfile) throw new Error('Profile not found after update. Contact admin to check your user profile record.');
 
     const savedAlias = parseIncognitoAlias(updatedProfile.incognito_alias);
     if (!savedAlias) {
@@ -1191,8 +1248,30 @@ export async function fetchDateFolderPosts(dateKey: string): Promise<Post[]> {
 
 export async function fetchUserProfile(userId: string) {
     const supabase = getSupabase();
-    const { data, error } = await supabase.from('users').select('*').eq('id', userId).single<DbUser>();
+    let { data, error } = await supabase.from('users').select('*').eq('id', userId).maybeSingle<DbUser>();
     if (error) throw toAppError(error);
+
+    if (!data) {
+        const sessionUser = await getSessionUser();
+        if (sessionUser?.id === userId) {
+            try {
+                await ensureUserProfile(sessionUser);
+            } catch (ensureError) {
+                if (isIncognitoAliasRequiredError(ensureError)) {
+                    throw new Error(
+                        'Profile row is missing and DB requires alias on member insert. Run the user backfill SQL, then retry.',
+                    );
+                }
+                throw toAppError(ensureError);
+            }
+            const retry = await supabase.from('users').select('*').eq('id', userId).maybeSingle<DbUser>();
+            data = retry.data;
+            error = retry.error;
+            if (error) throw toAppError(error);
+        }
+    }
+
+    if (!data) throw new Error('Profile not found.');
 
     const userPosts = await fetchPosts();
     const postsByUser = userPosts.filter((post) => post.userId === userId);
@@ -1369,8 +1448,61 @@ export async function toggleFreedomPostLike(postId: string): Promise<{ liked: bo
     return { liked: true };
 }
 
+export async function toggleFreedomCommentLike(commentId: string): Promise<{ liked: boolean }> {
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) throw new Error('You must be logged in.');
+
+    const { data: existing, error: existingError } = await supabase
+        .from('freedom_wall_comment_likes')
+        .select('id')
+        .eq('comment_id', commentId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+    if (existingError) {
+        if (isMissingFreedomCommentLikesTableError(existingError)) {
+            throw new Error(
+                "Database migration required: missing 'freedom_wall_comment_likes' table. Run 'supabase/comment-reactions.sql' and retry.",
+            );
+        }
+        if (isPermissionDeniedError(existingError)) {
+            throw new Error(
+                'Permission denied for Freedom Wall comment reactions. Check RLS policies for freedom_wall_comment_likes.',
+            );
+        }
+        throw toAppError(existingError);
+    }
+
+    if (existing?.id) {
+        const { error: deleteError } = await supabase.from('freedom_wall_comment_likes').delete().eq('id', existing.id);
+        if (deleteError) throw toAppError(deleteError);
+        return { liked: false };
+    }
+
+    const { error: insertError } = await supabase.from('freedom_wall_comment_likes').insert({
+        comment_id: commentId,
+        user_id: user.id,
+    });
+    if (insertError) {
+        if (isMissingFreedomCommentLikesTableError(insertError)) {
+            throw new Error(
+                "Database migration required: missing 'freedom_wall_comment_likes' table. Run 'supabase/comment-reactions.sql' and retry.",
+            );
+        }
+        if (isPermissionDeniedError(insertError)) {
+            throw new Error(
+                'Permission denied for Freedom Wall comment reactions. Check RLS policies for freedom_wall_comment_likes.',
+            );
+        }
+        throw toAppError(insertError);
+    }
+
+    return { liked: true };
+}
+
 export async function fetchFreedomPostComments(postId: string): Promise<FreedomWallComment[]> {
     const supabase = getSupabase();
+    const user = await getSessionUser();
     const { data: rows, error } = await supabase
         .from('freedom_wall_comments')
         .select('id,post_id,user_id,parent_id,content,created_at')
@@ -1389,10 +1521,33 @@ export async function fetchFreedomPostComments(postId: string): Promise<FreedomW
     }
     if (!rows || rows.length === 0) return [];
 
+    const commentIds = rows.map((row) => row.id);
     const userIds = [...new Set(rows.map((row) => row.user_id))];
     const { data: users, error: usersError } = await supabase.from('users').select('*').in('id', userIds).returns<DbUser[]>();
     if (usersError) throw toAppError(usersError);
     const names = new Map((users ?? []).map((user) => [user.id, user.name]));
+
+    let likeRows: DbFreedomCommentLikeRow[] = [];
+    if (commentIds.length > 0) {
+        const { data: likesData, error: likesError } = await supabase
+            .from('freedom_wall_comment_likes')
+            .select('id,comment_id,user_id')
+            .in('comment_id', commentIds)
+            .returns<DbFreedomCommentLikeRow[]>();
+        if (!likesError && likesData) {
+            likeRows = likesData;
+        } else if (likesError && !isMissingFreedomCommentLikesTableError(likesError)) {
+            throw toAppError(likesError);
+        }
+    }
+
+    const likeCounts = likeRows.reduce<Record<string, number>>((acc, row) => {
+        acc[row.comment_id] = (acc[row.comment_id] ?? 0) + 1;
+        return acc;
+    }, {});
+    const likedCommentIds = new Set(
+        likeRows.filter((row) => row.user_id === user?.id).map((row) => row.comment_id),
+    );
 
     return rows.map((row) => ({
         id: row.id,
@@ -1400,6 +1555,8 @@ export async function fetchFreedomPostComments(postId: string): Promise<FreedomW
         userId: row.user_id,
         parentId: row.parent_id ?? undefined,
         content: row.content,
+        likes: likeCounts[row.id] ?? 0,
+        likedByCurrentUser: likedCommentIds.has(row.id),
         createdAt: row.created_at,
         authorName: names.get(row.user_id) ?? 'User',
     }));
@@ -1448,6 +1605,7 @@ export function subscribeToFreedomWall(onChange: () => void): () => void {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'freedom_wall_posts' }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'freedom_wall_likes' }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'freedom_wall_comments' }, onChange)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'freedom_wall_comment_likes' }, onChange)
         .subscribe();
 
     return () => {
@@ -1549,8 +1707,12 @@ export async function fetchIncognitoPosts(): Promise<
 
 export async function createIncognitoPost(content: string): Promise<void> {
     const supabase = getSupabase();
-    const user = await getSessionUser();
+    const [user, profile] = await Promise.all([getSessionUser(), getCurrentUserProfile()]);
     if (!user) throw new Error('You must be logged in.');
+    if (!profile) throw new Error('Complete your profile setup first, then try again.');
+    if (profile.role === 'member' && !parseIncognitoAlias(profile.incognitoAlias)) {
+        throw new Error('Set your incognito alias in your profile before posting on Incognito.');
+    }
     const cleaned = content.trim();
     if (!cleaned) throw new Error('Write something before posting.');
     const { error } = await supabase.from('incognito_posts').insert({
@@ -1602,8 +1764,51 @@ export async function toggleIncognitoPostLike(postId: string): Promise<{ liked: 
     return { liked: true };
 }
 
+export async function toggleIncognitoCommentLike(commentId: string): Promise<{ liked: boolean }> {
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) throw new Error('You must be logged in.');
+
+    const { data: existing, error: checkError } = await supabase
+        .from('incognito_comment_likes')
+        .select('id')
+        .eq('comment_id', commentId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+    if (checkError) {
+        if (isMissingIncognitoCommentLikesTableError(checkError)) {
+            throw new Error(
+                "Database migration required: missing 'incognito_comment_likes' table. Run 'supabase/comment-reactions.sql' and retry.",
+            );
+        }
+        throw toAppError(checkError);
+    }
+
+    if (existing?.id) {
+        const { error: deleteError } = await supabase.from('incognito_comment_likes').delete().eq('id', existing.id);
+        if (deleteError) throw toAppError(deleteError);
+        return { liked: false };
+    }
+
+    const { error: insertError } = await supabase.from('incognito_comment_likes').insert({
+        comment_id: commentId,
+        user_id: user.id,
+    });
+    if (insertError) {
+        if (isMissingIncognitoCommentLikesTableError(insertError)) {
+            throw new Error(
+                "Database migration required: missing 'incognito_comment_likes' table. Run 'supabase/comment-reactions.sql' and retry.",
+            );
+        }
+        throw toAppError(insertError);
+    }
+
+    return { liked: true };
+}
+
 export async function fetchIncognitoPostComments(postId: string): Promise<PostComment[]> {
     const supabase = getSupabase();
+    const currentUser = await getSessionUser();
     const { data: rows, error } = await supabase
         .from('incognito_comments')
         .select('id,post_id,user_id,content,created_at')
@@ -1619,6 +1824,7 @@ export async function fetchIncognitoPostComments(postId: string): Promise<PostCo
     }
     if (!rows || rows.length === 0) return [];
 
+    const commentIds = rows.map((row) => row.id);
     const userIds = [...new Set(rows.map((row) => row.user_id))];
     const { data: users, error: usersError } = await supabase.from('users').select('*').in('id', userIds).returns<DbUser[]>();
     if (usersError) throw toAppError(usersError);
@@ -1632,11 +1838,35 @@ export async function fetchIncognitoPostComments(postId: string): Promise<PostCo
         ]),
     );
 
+    let likeRows: DbIncognitoCommentLikeRow[] = [];
+    if (commentIds.length > 0) {
+        const { data: likesData, error: likesError } = await supabase
+            .from('incognito_comment_likes')
+            .select('id,comment_id,user_id')
+            .in('comment_id', commentIds)
+            .returns<DbIncognitoCommentLikeRow[]>();
+        if (!likesError && likesData) {
+            likeRows = likesData;
+        } else if (likesError && !isMissingIncognitoCommentLikesTableError(likesError)) {
+            throw toAppError(likesError);
+        }
+    }
+
+    const likeCounts = likeRows.reduce<Record<string, number>>((acc, row) => {
+        acc[row.comment_id] = (acc[row.comment_id] ?? 0) + 1;
+        return acc;
+    }, {});
+    const likedCommentIds = new Set(
+        likeRows.filter((row) => row.user_id === currentUser?.id).map((row) => row.comment_id),
+    );
+
     return rows.map((row) => ({
         id: row.id,
         postId: row.post_id,
         userId: row.user_id,
         content: row.content,
+        likes: likeCounts[row.id] ?? 0,
+        likedByCurrentUser: likedCommentIds.has(row.id),
         createdAt: row.created_at,
         authorName: aliases.get(row.user_id) ?? 'Anonymous',
     }));
@@ -1644,8 +1874,12 @@ export async function fetchIncognitoPostComments(postId: string): Promise<PostCo
 
 export async function addIncognitoPostComment(postId: string, content: string): Promise<void> {
     const supabase = getSupabase();
-    const user = await getSessionUser();
+    const [user, profile] = await Promise.all([getSessionUser(), getCurrentUserProfile()]);
     if (!user) throw new Error('You must be logged in.');
+    if (!profile) throw new Error('Complete your profile setup first, then try again.');
+    if (profile.role === 'member' && !parseIncognitoAlias(profile.incognitoAlias)) {
+        throw new Error('Set your incognito alias in your profile before commenting on Incognito.');
+    }
 
     const cleaned = content.trim();
     if (!cleaned) throw new Error('Comment cannot be empty.');
@@ -1672,6 +1906,7 @@ export function subscribeToIncognito(onChange: () => void): () => void {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'incognito_posts' }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'incognito_likes' }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'incognito_comments' }, onChange)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'incognito_comment_likes' }, onChange)
         .subscribe();
 
     return () => {
@@ -1803,6 +2038,7 @@ async function mapNotificationsRows(rows: DbNotification[]): Promise<AppNotifica
     return normalizedRows.map(({ row, type, data }) => {
         const isIncognitoNotification = type === 'incognito_like' || type === 'incognito_comment';
         const actor = row.actor_user_id ? actorById.get(row.actor_user_id) : undefined;
+        const actorAliasFromData = isIncognitoNotification ? getNotificationDataString(data, 'actorAlias') : undefined;
 
         let title = row.title;
         let body = row.body;
@@ -1836,10 +2072,10 @@ async function mapNotificationsRows(rows: DbNotification[]): Promise<AppNotifica
             recipientUserId: row.recipient_user_id,
             actorUserId: row.actor_user_id ?? undefined,
             actorName:
-                !row.actor_user_id
-                    ? undefined
-                    : isIncognitoNotification
-                      ? actor?.incognitoAlias
+                isIncognitoNotification
+                    ? actor?.incognitoAlias ?? actorAliasFromData ?? actor?.name
+                    : !row.actor_user_id
+                      ? undefined
                       : actor?.name,
             actorAvatarUrl:
                 isIncognitoNotification || !row.actor_user_id
@@ -2090,6 +2326,48 @@ export async function togglePostLike(postId: string): Promise<{ liked: boolean }
     return { liked: true };
 }
 
+export async function togglePostCommentLike(commentId: string): Promise<{ liked: boolean }> {
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) throw new Error('You must be logged in.');
+
+    const { data: existing, error: checkError } = await supabase
+        .from('comment_likes')
+        .select('id')
+        .eq('comment_id', commentId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+    if (checkError) {
+        if (isMissingFeedCommentLikesTableError(checkError)) {
+            throw new Error(
+                "Database migration required: missing 'comment_likes' table. Run 'supabase/comment-reactions.sql' and retry.",
+            );
+        }
+        throw toAppError(checkError);
+    }
+
+    if (existing?.id) {
+        const { error: deleteError } = await supabase.from('comment_likes').delete().eq('id', existing.id);
+        if (deleteError) throw toAppError(deleteError);
+        return { liked: false };
+    }
+
+    const { error: insertError } = await supabase.from('comment_likes').insert({
+        comment_id: commentId,
+        user_id: user.id,
+    });
+    if (insertError) {
+        if (isMissingFeedCommentLikesTableError(insertError)) {
+            throw new Error(
+                "Database migration required: missing 'comment_likes' table. Run 'supabase/comment-reactions.sql' and retry.",
+            );
+        }
+        throw toAppError(insertError);
+    }
+
+    return { liked: true };
+}
+
 export async function fetchPostComments(postId: string): Promise<PostComment[]> {
     const all: PostComment[] = [];
     const seenIds = new Set<string>();
@@ -2128,6 +2406,7 @@ export async function fetchPostCommentsPage(
     hasMore: boolean;
 }> {
     const supabase = getSupabase();
+    const currentUser = await getSessionUser();
     const safeLimit = Math.max(1, Math.min(input.limit ?? 10, 100));
     let query = supabase
         .from('comments')
@@ -2157,11 +2436,35 @@ export async function fetchPostCommentsPage(
     if (usersError) throw toAppError(usersError);
     const names = new Map((users ?? []).map((user) => [user.id, user.name]));
 
+    const commentIds = pageRows.map((row) => row.id);
+    let likeRows: DbCommentLikeRow[] = [];
+    if (commentIds.length > 0) {
+        const { data: likesData, error: likesError } = await supabase
+            .from('comment_likes')
+            .select('id,comment_id,user_id')
+            .in('comment_id', commentIds)
+            .returns<DbCommentLikeRow[]>();
+        if (!likesError && likesData) {
+            likeRows = likesData;
+        } else if (likesError && !isMissingFeedCommentLikesTableError(likesError)) {
+            throw toAppError(likesError);
+        }
+    }
+    const likeCounts = likeRows.reduce<Record<string, number>>((acc, row) => {
+        acc[row.comment_id] = (acc[row.comment_id] ?? 0) + 1;
+        return acc;
+    }, {});
+    const likedCommentIds = new Set(
+        likeRows.filter((row) => row.user_id === currentUser?.id).map((row) => row.comment_id),
+    );
+
     const items = pageRows.map((row) => ({
         id: row.id,
         postId: row.post_id,
         userId: row.user_id,
         content: row.content,
+        likes: likeCounts[row.id] ?? 0,
+        likedByCurrentUser: likedCommentIds.has(row.id),
         createdAt: row.created_at,
         authorName: names.get(row.user_id) ?? 'User',
     }));
@@ -2203,6 +2506,7 @@ export function subscribeToPostEngagement(postId: string, onChange: () => void):
             { event: '*', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` },
             onChange,
         )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'comment_likes' }, onChange)
         .subscribe();
 
     return () => {
