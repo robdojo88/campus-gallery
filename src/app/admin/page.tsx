@@ -16,7 +16,7 @@ const cards = [
     {
         href: '/admin/uploads',
         label: 'Uploads',
-        detail: 'Moderate posts and visitor submissions',
+        detail: 'Delete feed/freedom posts and comments',
     },
     {
         href: '/admin/incognito',
@@ -26,7 +26,7 @@ const cards = [
     {
         href: '/admin/reports',
         label: 'Reports',
-        detail: 'Handle flagged content and abuse reports',
+        detail: 'Resolve reports and moderate visitor feedback',
     },
     {
         href: '/admin/analytics',
@@ -42,7 +42,7 @@ export default function AdminPage() {
                 {/* <PageHeader
                     eyebrow='Admin'
                     title='Admin Dashboard'
-                    description='Central moderation and operations console for Campus Gallery.'
+                    description='Central moderation and operations console for Ripple.'
                 /> */}
                 <section className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
                     {cards.map((card) => (

@@ -1,4 +1,4 @@
--- Feed comment replies with nested depth capped at second level
+-- Feed comment replies with unlimited nesting (indentation is handled in UI)
 
 alter table public.comments
 add column if not exists parent_id uuid references public.comments(id) on delete cascade;
@@ -30,15 +30,14 @@ set search_path = public
 as $$
 declare
   parent_post_id uuid;
-  parent_parent_id uuid;
-  grand_parent_parent_id uuid;
+  parent_user_id uuid;
 begin
   if new.parent_id is null then
     return new;
   end if;
 
-  select c.post_id, c.parent_id
-  into parent_post_id, parent_parent_id
+  select c.post_id, c.user_id
+  into parent_post_id, parent_user_id
   from public.comments c
   where c.id = new.parent_id;
 
@@ -50,17 +49,8 @@ begin
     raise exception 'Reply must belong to the same post.';
   end if;
 
-  if parent_parent_id is null then
-    return new;
-  end if;
-
-  select c.parent_id
-  into grand_parent_parent_id
-  from public.comments c
-  where c.id = parent_parent_id;
-
-  if grand_parent_parent_id is not null then
-    raise exception 'Replies are limited to second-level threads.';
+  if auth.uid() is not null and parent_user_id = auth.uid() then
+    raise exception 'You cannot reply to your own comment.';
   end if;
 
   return new;

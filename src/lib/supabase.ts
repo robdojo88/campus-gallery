@@ -4,6 +4,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import type { RealtimeChannel, SupabaseClient, User } from '@supabase/supabase-js';
 import type {
     AppNotification,
+    ContentReport,
     FreedomPost,
     FreedomWallComment,
     GlobalSearchResults,
@@ -16,6 +17,8 @@ import type {
     SearchEventResult,
     SearchPostResult,
     SearchUserResult,
+    ReportTargetType,
+    ReportStatus,
     UserRole,
     Visibility,
 } from '@/lib/types';
@@ -139,6 +142,20 @@ type DbReview = {
     rating: number;
     review_text: string;
     status: 'approved' | 'pending' | 'rejected';
+    created_at: string;
+};
+
+type DbContentReport = {
+    id: string;
+    reporter_user_id: string;
+    target_type: ReportTargetType;
+    target_id: string;
+    reason: string;
+    details: string | null;
+    status: ReportStatus;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+    action_note: string | null;
     created_at: string;
 };
 
@@ -342,9 +359,41 @@ function normalizeNotificationType(value: string): NotificationType {
         'incognito_like',
         'incognito_comment',
         'event_created',
+        'report_created',
         'system',
     ];
     return supported.includes(value as NotificationType) ? (value as NotificationType) : 'system';
+}
+
+function buildReportTargetHref(
+    targetType: ReportTargetType,
+    targetId: string,
+    targetPostId?: string,
+): string | undefined {
+    const encodedTargetId = encodeURIComponent(targetId);
+    const encodedTargetPostId = targetPostId
+        ? encodeURIComponent(targetPostId)
+        : '';
+
+    if (targetType === 'feed_post') {
+        return `/feed?post=${encodedTargetId}`;
+    }
+    if (targetType === 'feed_comment' && targetPostId) {
+        return `/feed?post=${encodedTargetPostId}&comment=${encodedTargetId}`;
+    }
+    if (targetType === 'freedom_post') {
+        return `/freedom-wall?post=${encodedTargetId}`;
+    }
+    if (targetType === 'freedom_comment' && targetPostId) {
+        return `/freedom-wall?post=${encodedTargetPostId}&comment=${encodedTargetId}`;
+    }
+    if (targetType === 'incognito_post') {
+        return `/incognito?post=${encodedTargetId}`;
+    }
+    if (targetType === 'incognito_comment' && targetPostId) {
+        return `/incognito?post=${encodedTargetPostId}&comment=${encodedTargetId}`;
+    }
+    return undefined;
 }
 
 function toAppError(error: unknown, fallback = 'Unexpected error.'): Error {
@@ -528,6 +577,10 @@ function isMissingFreedomCommentLikesTableError(error: unknown): boolean {
 
 function isMissingIncognitoCommentLikesTableError(error: unknown): boolean {
     return isMissingTableError(error, 'incognito_comment_likes');
+}
+
+function isMissingContentReportsTableError(error: unknown): boolean {
+    return isMissingTableError(error, 'content_reports');
 }
 
 function mapPosts(
@@ -1310,6 +1363,9 @@ export async function fetchFreedomPosts(): Promise<FreedomPost[]> {
     const { data: users, error: usersError } = await supabase.from('users').select('*').in('id', userIds).returns<DbUser[]>();
     if (usersError) throw toAppError(usersError);
     const names = new Map((users ?? []).map((user) => [user.id, user.name]));
+    const avatarUrls = new Map(
+        (users ?? []).map((user) => [user.id, resolveAvatarUrl(user.avatar_url)]),
+    );
 
     let likesRows: DbFreedomLike[] = [];
     let commentsRows: DbFreedomCommentRow[] = [];
@@ -1352,6 +1408,7 @@ export async function fetchFreedomPosts(): Promise<FreedomPost[]> {
         id: row.id,
         authorId: row.user_id,
         authorName: names.get(row.user_id) ?? 'Unknown',
+        authorAvatarUrl: avatarUrls.get(row.user_id) ?? DEFAULT_AVATAR_URL,
         content: row.content,
         imageUrl: row.image_url ? normalizeCaptureUrl(row.image_url) : undefined,
         likes: likeCounts[row.id] ?? 0,
@@ -1592,25 +1649,15 @@ export async function addFreedomPostComment(input: {
     if (input.parentId) {
         const { data: parent, error: parentError } = await supabase
             .from('freedom_wall_comments')
-            .select('id,post_id,parent_id')
+            .select('id,post_id,parent_id,user_id')
             .eq('id', input.parentId)
-            .maybeSingle<{ id: string; post_id: string; parent_id: string | null }>();
+            .maybeSingle<{ id: string; post_id: string; parent_id: string | null; user_id: string }>();
         if (parentError) throw toAppError(parentError);
         if (!parent || parent.post_id !== input.postId) {
             throw new Error('Reply target no longer exists.');
         }
-
-        if (parent.parent_id) {
-            const { data: parentOfParent, error: parentOfParentError } = await supabase
-                .from('freedom_wall_comments')
-                .select('parent_id')
-                .eq('id', parent.parent_id)
-                .maybeSingle<{ parent_id: string | null }>();
-            if (parentOfParentError) throw toAppError(parentOfParentError);
-
-            if (parentOfParent?.parent_id) {
-                throw new Error('Replies are limited to second-level threads.');
-            }
+        if (parent.user_id === user.id) {
+            throw new Error('You cannot reply to your own comment.');
         }
 
         targetParentId = parent.id;
@@ -1623,15 +1670,6 @@ export async function addFreedomPostComment(input: {
         content: cleaned,
     });
     if (error) {
-        if (
-            typeof error === 'object' &&
-            error &&
-            'message' in error &&
-            typeof (error as { message?: unknown }).message === 'string' &&
-            (error as { message: string }).message.toLowerCase().includes('second-level')
-        ) {
-            throw new Error('Replies are limited to second-level threads.');
-        }
         if (isMissingFreedomEngagementTablesError(error)) {
             throw new Error(
                 "Database migration required: missing 'freedom_wall_comments' table. Run the latest SQL migration and retry.",
@@ -2551,9 +2589,9 @@ export async function addPostComment(postId: string, content: string, parentId?:
     if (parentId) {
         const { data: parent, error: parentError } = await supabase
             .from('comments')
-            .select('id,post_id,parent_id')
+            .select('id,post_id,parent_id,user_id')
             .eq('id', parentId)
-            .maybeSingle<{ id: string; post_id: string; parent_id: string | null }>();
+            .maybeSingle<{ id: string; post_id: string; parent_id: string | null; user_id: string }>();
         if (parentError) {
             if (isMissingFeedCommentReplySchemaError(parentError)) {
                 throw new Error(
@@ -2565,25 +2603,8 @@ export async function addPostComment(postId: string, content: string, parentId?:
         if (!parent || parent.post_id !== postId) {
             throw new Error('Reply target no longer exists.');
         }
-
-        if (parent.parent_id) {
-            const { data: parentOfParent, error: parentOfParentError } = await supabase
-                .from('comments')
-                .select('parent_id')
-                .eq('id', parent.parent_id)
-                .maybeSingle<{ parent_id: string | null }>();
-            if (parentOfParentError) {
-                if (isMissingFeedCommentReplySchemaError(parentOfParentError)) {
-                    throw new Error(
-                        "Database migration required: missing feed comment reply schema. Run 'supabase/feed-comment-replies.sql' and retry.",
-                    );
-                }
-                throw toAppError(parentOfParentError);
-            }
-
-            if (parentOfParent?.parent_id) {
-                throw new Error('Replies are limited to second-level threads.');
-            }
+        if (parent.user_id === user.id) {
+            throw new Error('You cannot reply to your own comment.');
         }
 
         targetParentId = parent.id;
@@ -2889,8 +2910,14 @@ export async function fetchAdminStats() {
 
 export async function createReview(input: { reviewText: string }): Promise<void> {
     const supabase = getSupabase();
-    const user = await getSessionUser();
+    const [user, profile] = await Promise.all([
+        getSessionUser(),
+        getCurrentUserProfile(),
+    ]);
     if (!user) throw new Error('You must be logged in.');
+    if (profile?.role !== 'visitor') {
+        throw new Error('Only visitors can submit feedback.');
+    }
     const cleaned = input.reviewText.trim();
     if (!cleaned) throw new Error('Feedback cannot be empty.');
 
@@ -2898,8 +2925,322 @@ export async function createReview(input: { reviewText: string }): Promise<void>
         visitor_id: user.id,
         rating: 3,
         review_text: cleaned,
+        status: 'approved',
     });
     if (error) throw toAppError(error);
+}
+
+async function requireAdminSession(): Promise<{ supabase: SupabaseClient; userId: string }> {
+    const supabase = getSupabase();
+    const [user, profile] = await Promise.all([
+        getSessionUser(),
+        getCurrentUserProfile(),
+    ]);
+    if (!user) throw new Error('You must be logged in.');
+    if (profile?.role !== 'admin') {
+        throw new Error('Admin access required.');
+    }
+    return { supabase, userId: user.id };
+}
+
+async function deleteContentTargetWithClient(
+    supabase: SupabaseClient,
+    targetType: ReportTargetType,
+    targetId: string,
+): Promise<void> {
+    if (!UUID_PATTERN.test(targetId)) {
+        throw new Error('Invalid target id.');
+    }
+
+    if (targetType === 'feed_post') {
+        const { error } = await supabase.from('posts').delete().eq('id', targetId);
+        if (error) throw toAppError(error);
+        return;
+    }
+    if (targetType === 'feed_comment') {
+        const { error } = await supabase.from('comments').delete().eq('id', targetId);
+        if (error) throw toAppError(error);
+        return;
+    }
+    if (targetType === 'freedom_post') {
+        const { error } = await supabase.from('freedom_wall_posts').delete().eq('id', targetId);
+        if (error) throw toAppError(error);
+        return;
+    }
+    if (targetType === 'freedom_comment') {
+        const { error } = await supabase.from('freedom_wall_comments').delete().eq('id', targetId);
+        if (error) throw toAppError(error);
+        return;
+    }
+    if (targetType === 'incognito_post') {
+        const { error } = await supabase.from('incognito_posts').delete().eq('id', targetId);
+        if (error) throw toAppError(error);
+        return;
+    }
+    const { error } = await supabase.from('incognito_comments').delete().eq('id', targetId);
+    if (error) throw toAppError(error);
+}
+
+export async function adminDeleteContentTarget(input: {
+    targetType: ReportTargetType;
+    targetId: string;
+}): Promise<void> {
+    const { supabase } = await requireAdminSession();
+    await deleteContentTargetWithClient(supabase, input.targetType, input.targetId);
+}
+
+export async function deleteReview(reviewId: string): Promise<void> {
+    if (!UUID_PATTERN.test(reviewId)) {
+        throw new Error('Invalid review id.');
+    }
+    const { supabase } = await requireAdminSession();
+    const { error } = await supabase.from('reviews').delete().eq('id', reviewId);
+    if (error) throw toAppError(error);
+}
+
+export async function deleteAllReviews(): Promise<number> {
+    const { supabase } = await requireAdminSession();
+    const { data, error } = await supabase
+        .from('reviews')
+        .delete()
+        .not('id', 'is', null)
+        .select('id');
+    if (error) throw toAppError(error);
+    return (data ?? []).length;
+}
+
+export async function createContentReport(input: {
+    targetType: ReportTargetType;
+    targetId: string;
+    reason?: string;
+    details?: string;
+}): Promise<void> {
+    if (!UUID_PATTERN.test(input.targetId)) {
+        throw new Error('Invalid report target id.');
+    }
+
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) throw new Error('You must be logged in.');
+
+    const reason = input.reason?.trim() || 'Reported content';
+    const details = input.details?.trim() || null;
+
+    const { error } = await supabase.from('content_reports').insert({
+        reporter_user_id: user.id,
+        target_type: input.targetType,
+        target_id: input.targetId,
+        reason,
+        details,
+    });
+    if (error) {
+        if (isMissingContentReportsTableError(error)) {
+            throw new Error(
+                "Database migration required: missing 'content_reports' table. Run 'supabase/reporting-and-moderation.sql' and retry.",
+            );
+        }
+        if (isUniqueViolationError(error)) {
+            throw new Error('You already reported this content.');
+        }
+        throw toAppError(error);
+    }
+}
+
+export async function fetchContentReports(input: {
+    status?: ReportStatus | 'all';
+    limit?: number;
+} = {}): Promise<ContentReport[]> {
+    const { supabase } = await requireAdminSession();
+    const safeLimit = Math.max(1, Math.min(input.limit ?? 200, 500));
+
+    let query = supabase
+        .from('content_reports')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(safeLimit);
+
+    if (input.status && input.status !== 'all') {
+        query = query.eq('status', input.status);
+    }
+
+    const { data: rows, error } = await query.returns<DbContentReport[]>();
+    if (error) {
+        if (isMissingContentReportsTableError(error)) {
+            throw new Error(
+                "Database migration required: missing 'content_reports' table. Run 'supabase/reporting-and-moderation.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
+    if (!rows || rows.length === 0) return [];
+
+    const userIds = [
+        ...new Set(
+            rows
+                .flatMap((row) => [row.reporter_user_id, row.reviewed_by])
+                .filter((value): value is string => Boolean(value)),
+        ),
+    ];
+    const nameByUserId = new Map<string, string>();
+    if (userIds.length > 0) {
+        const { data: users, error: usersError } = await supabase
+            .from('users')
+            .select('id,name')
+            .in('id', userIds)
+            .returns<Array<{ id: string; name: string }>>();
+        if (usersError) throw toAppError(usersError);
+        (users ?? []).forEach((row) => {
+            nameByUserId.set(row.id, row.name);
+        });
+    }
+
+    const feedCommentTargetIds = [
+        ...new Set(
+            rows
+                .filter((row) => row.target_type === 'feed_comment')
+                .map((row) => row.target_id),
+        ),
+    ];
+    const freedomCommentTargetIds = [
+        ...new Set(
+            rows
+                .filter((row) => row.target_type === 'freedom_comment')
+                .map((row) => row.target_id),
+        ),
+    ];
+    const incognitoCommentTargetIds = [
+        ...new Set(
+            rows
+                .filter((row) => row.target_type === 'incognito_comment')
+                .map((row) => row.target_id),
+        ),
+    ];
+
+    const feedCommentPostIdByCommentId = new Map<string, string>();
+    const freedomCommentPostIdByCommentId = new Map<string, string>();
+    const incognitoCommentPostIdByCommentId = new Map<string, string>();
+
+    if (feedCommentTargetIds.length > 0) {
+        const { data: feedCommentRows, error: feedCommentRowsError } =
+            await supabase
+                .from('comments')
+                .select('id,post_id')
+                .in('id', feedCommentTargetIds)
+                .returns<Array<{ id: string; post_id: string }>>();
+        if (feedCommentRowsError) throw toAppError(feedCommentRowsError);
+        (feedCommentRows ?? []).forEach((row) => {
+            feedCommentPostIdByCommentId.set(row.id, row.post_id);
+        });
+    }
+
+    if (freedomCommentTargetIds.length > 0) {
+        const { data: freedomCommentRows, error: freedomCommentRowsError } =
+            await supabase
+                .from('freedom_wall_comments')
+                .select('id,post_id')
+                .in('id', freedomCommentTargetIds)
+                .returns<Array<{ id: string; post_id: string }>>();
+        if (freedomCommentRowsError) throw toAppError(freedomCommentRowsError);
+        (freedomCommentRows ?? []).forEach((row) => {
+            freedomCommentPostIdByCommentId.set(row.id, row.post_id);
+        });
+    }
+
+    if (incognitoCommentTargetIds.length > 0) {
+        const {
+            data: incognitoCommentRows,
+            error: incognitoCommentRowsError,
+        } = await supabase
+            .from('incognito_comments')
+            .select('id,post_id')
+            .in('id', incognitoCommentTargetIds)
+            .returns<Array<{ id: string; post_id: string }>>();
+        if (incognitoCommentRowsError) throw toAppError(incognitoCommentRowsError);
+        (incognitoCommentRows ?? []).forEach((row) => {
+            incognitoCommentPostIdByCommentId.set(row.id, row.post_id);
+        });
+    }
+
+    return rows.map((row) => {
+        let targetPostId: string | undefined;
+        if (
+            row.target_type === 'feed_post' ||
+            row.target_type === 'freedom_post' ||
+            row.target_type === 'incognito_post'
+        ) {
+            targetPostId = row.target_id;
+        } else if (row.target_type === 'feed_comment') {
+            targetPostId = feedCommentPostIdByCommentId.get(row.target_id);
+        } else if (row.target_type === 'freedom_comment') {
+            targetPostId = freedomCommentPostIdByCommentId.get(row.target_id);
+        } else if (row.target_type === 'incognito_comment') {
+            targetPostId = incognitoCommentPostIdByCommentId.get(row.target_id);
+        }
+
+        return {
+            id: row.id,
+            reporterUserId: row.reporter_user_id,
+            reporterName: nameByUserId.get(row.reporter_user_id) ?? 'User',
+            targetType: row.target_type,
+            targetId: row.target_id,
+            targetPostId,
+            targetHref: buildReportTargetHref(
+                row.target_type,
+                row.target_id,
+                targetPostId,
+            ),
+            reason: row.reason,
+            details: row.details ?? '',
+            status: row.status,
+            reviewedBy: row.reviewed_by ?? undefined,
+            reviewedByName: row.reviewed_by
+                ? nameByUserId.get(row.reviewed_by) ?? 'Admin'
+                : undefined,
+            reviewedAt: row.reviewed_at ?? undefined,
+            actionNote: row.action_note ?? undefined,
+            createdAt: row.created_at,
+        };
+    });
+}
+
+export async function resolveContentReport(input: {
+    reportId: string;
+    action: 'decline' | 'delete_target';
+    actionNote?: string;
+}): Promise<void> {
+    if (!UUID_PATTERN.test(input.reportId)) {
+        throw new Error('Invalid report id.');
+    }
+
+    const { supabase, userId } = await requireAdminSession();
+    const { data: report, error: reportError } = await supabase
+        .from('content_reports')
+        .select('*')
+        .eq('id', input.reportId)
+        .maybeSingle<DbContentReport>();
+    if (reportError) throw toAppError(reportError);
+    if (!report) {
+        throw new Error('Report no longer exists.');
+    }
+
+    if (input.action === 'delete_target') {
+        await deleteContentTargetWithClient(
+            supabase,
+            report.target_type,
+            report.target_id,
+        );
+    }
+
+    const { error: updateError } = await supabase
+        .from('content_reports')
+        .update({
+            status: input.action === 'delete_target' ? 'resolved' : 'declined',
+            reviewed_by: userId,
+            reviewed_at: new Date().toISOString(),
+            action_note: input.actionNote?.trim() || null,
+        })
+        .eq('id', input.reportId);
+    if (updateError) throw toAppError(updateError);
 }
 
 export function subscribeToPosts(onChange: () => void): () => void {

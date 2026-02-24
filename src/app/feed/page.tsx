@@ -1,13 +1,16 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { FeedLoader } from '@/components/feed/feed-loader';
 import { AppShell } from '@/components/layout/app-shell';
 import { PostCard } from '@/components/feed/post-card';
 import { getErrorMessage } from '@/lib/error-message';
-import { fetchPostsPage, subscribeToPosts } from '@/lib/supabase';
+import {
+    fetchPostsPage,
+    getCurrentUserProfile,
+    subscribeToPosts,
+} from '@/lib/supabase';
 import type { Post } from '@/lib/types';
 
 const PAGE_SIZE = 5;
@@ -15,6 +18,7 @@ const PAGE_SIZE = 5;
 export default function FeedPage() {
     const [targetPostId, setTargetPostId] = useState('');
     const [targetCommentId, setTargetCommentId] = useState('');
+    const [isAdminViewer, setIsAdminViewer] = useState<boolean | null>(null);
     const [campusPosts, setCampusPosts] = useState<Post[]>([]);
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
@@ -121,6 +125,22 @@ export default function FeedPage() {
     }, [loadInitial, refreshLoaded]);
 
     useEffect(() => {
+        let mounted = true;
+        getCurrentUserProfile()
+            .then((profile) => {
+                if (!mounted) return;
+                setIsAdminViewer(profile?.role === 'admin');
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setIsAdminViewer(false);
+            });
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
         if (!anchorRef.current || !hasMore || loading) return;
         const node = anchorRef.current;
         const observer = new IntersectionObserver(
@@ -160,32 +180,6 @@ export default function FeedPage() {
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
-                {/* <PageHeader
-                    eyebrow='Realtime Feed'
-                    title='Campus Feed'
-                    description='Live campus timeline with camera-first posts, reactions, and threaded comments.'
-                /> */}
-                {/* <section className='mx-auto mb-4 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'>
-                    <div className='flex flex-wrap items-center justify-between gap-3'>
-                        <p className='text-sm font-medium text-slate-700'>
-                            Share a moment with the community.
-                        </p>
-                        <div className='flex items-center gap-2'>
-                            <Link
-                                href='/camera'
-                                className='rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500'
-                            >
-                                Capture Photo
-                            </Link>
-                            <Link
-                                href='/camera/multi'
-                                className='rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50'
-                            >
-                                Batch Mode
-                            </Link>
-                        </div>
-                    </div>
-                </section> */}
                 {loading ? <FeedLoader count={3} /> : null}
                 {!loading && status ? (
                     <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
@@ -207,6 +201,8 @@ export default function FeedPage() {
                                             ? targetCommentId
                                             : ''
                                     }
+                                    onPostDeleted={() => refreshLoaded()}
+                                    isAdminViewer={isAdminViewer}
                                 />
                             </div>
                         ))}

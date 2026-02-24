@@ -6,8 +6,10 @@ import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PageHeader } from '@/components/ui/page-header';
-import { fetchDateFolderPosts } from '@/lib/supabase';
+import { fetchDateFolderPosts, getCurrentUserProfile } from '@/lib/supabase';
+import type { UserRole } from '@/lib/types';
 
 type DateFolderImage = {
     id: string;
@@ -27,14 +29,56 @@ function formatDateLabel(dateKey: string): string {
     });
 }
 
+function sanitizeFilenamePart(value: string): string {
+    const cleaned = value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    return cleaned || 'capture';
+}
+
+function inferFileExtension(imageUrl: string, mimeType: string): string {
+    if (mimeType.startsWith('image/')) {
+        const typeSuffix = mimeType.slice('image/'.length).toLowerCase();
+        if (typeSuffix === 'jpeg') return 'jpg';
+        if (typeSuffix) return typeSuffix;
+    }
+
+    const withoutQuery = imageUrl.split('?')[0] ?? imageUrl;
+    const match = withoutQuery.match(/\.([a-zA-Z0-9]{2,5})$/);
+    return match?.[1]?.toLowerCase() ?? 'jpg';
+}
+
 export default function DateFolderDetailPage() {
     const params = useParams<{ date: string }>();
     const folderDate = decodeURIComponent(Array.isArray(params?.date) ? params.date[0] : params?.date ?? '');
     const [images, setImages] = useState<DateFolderImage[]>([]);
     const [status, setStatus] = useState('Loading folder...');
+    const [downloadStatus, setDownloadStatus] = useState('');
+    const [downloadingAll, setDownloadingAll] = useState(false);
+    const [confirmDownloadOpen, setConfirmDownloadOpen] = useState(false);
+    const [role, setRole] = useState<UserRole | null>(null);
     const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
 
     const folderLabel = useMemo(() => formatDateLabel(folderDate), [folderDate]);
+
+    useEffect(() => {
+        let mounted = true;
+        getCurrentUserProfile()
+            .then((profile) => {
+                if (!mounted) return;
+                setRole(profile?.role ?? null);
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setRole(null);
+            });
+        return () => {
+            mounted = false;
+        };
+    }, []);
 
     useEffect(() => {
         let mounted = true;
@@ -125,6 +169,64 @@ export default function DateFolderDetailPage() {
         });
     }
 
+    async function onDownloadAllImages() {
+        if (downloadingAll || images.length === 0) return;
+
+        setDownloadingAll(true);
+        setDownloadStatus('');
+
+        try {
+            const JSZip = (await import('jszip')).default;
+            const zip = new JSZip();
+
+            for (let index = 0; index < images.length; index += 1) {
+                const item = images[index];
+                setDownloadStatus(
+                    `Adding image ${index + 1} of ${images.length}...`,
+                );
+
+                const response = await fetch(item.imageUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to download image ${index + 1}.`);
+                }
+
+                const blob = await response.blob();
+                const extension = inferFileExtension(item.imageUrl, blob.type);
+                const filename = `${folderDate}-${String(index + 1).padStart(3, '0')}-${sanitizeFilenamePart(item.authorName)}.${extension}`;
+                const content = await blob.arrayBuffer();
+                zip.file(filename, content, { binary: true });
+            }
+
+            setDownloadStatus('Building ZIP file...');
+            const zipBlob = await zip.generateAsync({
+                type: 'blob',
+                compression: 'STORE',
+            });
+            const objectUrl = URL.createObjectURL(zipBlob);
+            const archiveName = `date-folder-${folderDate}.zip`;
+            const anchor = document.createElement('a');
+            anchor.href = objectUrl;
+            anchor.download = archiveName;
+            anchor.rel = 'noopener';
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+
+            setDownloadStatus(
+                `Downloaded ${archiveName} with ${images.length} image(s).`,
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to download folder images.';
+            setDownloadStatus(message);
+        } finally {
+            setDownloadingAll(false);
+        }
+    }
+
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
@@ -133,16 +235,33 @@ export default function DateFolderDetailPage() {
                     title='Date Folder'
                     description={`Showing all captures for ${folderLabel}.`}
                     action={
-                        <Link
-                            href='/gallery/date'
-                            className='rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50'
-                        >
-                            Back to Date Folders
-                        </Link>
+                        <div className='flex flex-wrap items-center justify-end gap-2'>
+                            {role === 'admin' ? (
+                                <button
+                                    type='button'
+                                    onClick={() => setConfirmDownloadOpen(true)}
+                                    disabled={downloadingAll || images.length === 0}
+                                    className='rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-700 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                >
+                                    {downloadingAll
+                                        ? 'Downloading...'
+                                        : 'Download All Images'}
+                                </button>
+                            ) : null}
+                            <Link
+                                href='/gallery/date'
+                                className='rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+                            >
+                                Back to Date Folders
+                            </Link>
+                        </div>
                     }
                 />
 
                 {status ? <p className='mb-4 text-sm text-slate-600'>{status}</p> : null}
+                {downloadStatus ? (
+                    <p className='mb-4 text-sm text-slate-600'>{downloadStatus}</p>
+                ) : null}
 
                 <section className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
                     {images.map((item, index) => (
@@ -224,6 +343,21 @@ export default function DateFolderDetailPage() {
                         </div>
                     </div>
                 ) : null}
+                <ConfirmDialog
+                    open={confirmDownloadOpen}
+                    title='Download all images in this folder?'
+                    description={`This will create one ZIP file with ${images.length} original image(s).`}
+                    confirmLabel='Download ZIP'
+                    busy={downloadingAll}
+                    onCancel={() => {
+                        if (downloadingAll) return;
+                        setConfirmDownloadOpen(false);
+                    }}
+                    onConfirm={() => {
+                        setConfirmDownloadOpen(false);
+                        void onDownloadAllImages();
+                    }}
+                />
             </AppShell>
         </AuthGuard>
     );

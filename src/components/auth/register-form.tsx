@@ -81,7 +81,7 @@ export function RegisterForm() {
         <main className='mx-auto grid min-h-screen w-full max-w-md place-items-center px-4 py-8'>
             <section className='w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm'>
                 <h1 className='text-2xl font-bold'>Register</h1>
-                <p className='mt-2 text-sm text-slate-600'>Create your Campus Gallery account.</p>
+                <p className='mt-2 text-sm text-slate-600'>Create your Ripple account.</p>
                 <form onSubmit={onSubmit} className='mt-6 space-y-3'>
                     <input
                         placeholder='Full Name'

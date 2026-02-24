@@ -10,8 +10,12 @@ import {
     type TouchEvent,
 } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { StatusPopper } from '@/components/ui/status-popper';
 import {
+    adminDeleteContentTarget,
     addPostComment,
+    createContentReport,
     fetchPostEngagement,
     fetchPostCommentsPage,
     getSessionUser,
@@ -19,18 +23,24 @@ import {
     togglePostCommentLike,
     togglePostLike,
 } from '@/lib/supabase';
+import { formatCommentTime } from '@/lib/comment-time';
 import type { Post, PostComment } from '@/lib/types';
 
 const FALLBACK_AVATAR_URL = '/avatar-default.svg';
 const COMMENTS_INITIAL_LIMIT = 10;
 const COMMENTS_PAGE_SIZE = 5;
-const FEED_COMMENT_MAX_DEPTH = 2;
+const FEED_COMMENT_INDENT_CAP = 1;
 
 type ReplyTarget = {
     commentId: string;
     parentId: string;
     authorName: string;
 };
+
+type CommentSortOrder = 'recent' | 'oldest';
+type DeleteTarget =
+    | { kind: 'post' }
+    | { kind: 'comment'; commentId: string };
 
 type CommentNode = PostComment & { replies: CommentNode[] };
 
@@ -39,10 +49,14 @@ function safeTimeValue(timestamp: string): number {
     return Number.isNaN(value) ? 0 : value;
 }
 
-function buildCommentTree(comments: PostComment[]): CommentNode[] {
-    const sorted = [...comments].sort(
-        (a, b) => safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt),
-    );
+function buildCommentTree(
+    comments: PostComment[],
+    sortOrder: CommentSortOrder,
+): CommentNode[] {
+    const sorted = [...comments].sort((a, b) => {
+        const delta = safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt);
+        return sortOrder === 'oldest' ? delta : -delta;
+    });
     const byId = new Map<string, CommentNode>();
     for (const comment of sorted) {
         byId.set(comment.id, { ...comment, replies: [] });
@@ -52,7 +66,9 @@ function buildCommentTree(comments: PostComment[]): CommentNode[] {
     for (const comment of sorted) {
         const node = byId.get(comment.id);
         if (!node) continue;
-        const parent = comment.parentId ? byId.get(comment.parentId) : undefined;
+        const parent = comment.parentId
+            ? byId.get(comment.parentId)
+            : undefined;
         if (parent) {
             parent.replies.push(node);
         } else {
@@ -437,7 +453,7 @@ function Lightbox({
                         alt={`Preview ${index + 1}`}
                         width={2200}
                         height={1600}
-                        className='max-h-[82vh] w-auto max-w-[94vw] object-contain transition-transform duration-200'
+                        className='max-h-[90vh] w-auto max-w-[94vw] object-contain transition-transform duration-200 rounded-2xl'
                         style={{ transform: `scale(${zoom})` }}
                         onLoad={() => setLoadedSrc(currentSrc)}
                         onError={() => setLoadedSrc(currentSrc)}
@@ -451,9 +467,13 @@ function Lightbox({
 export function PostCard({
     post,
     targetCommentId = '',
+    onPostDeleted,
+    isAdminViewer = null,
 }: {
     post: Post;
     targetCommentId?: string;
+    onPostDeleted?: (postId: string) => void | Promise<void>;
+    isAdminViewer?: boolean | null;
 }) {
     const author = post.author;
     const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
@@ -465,14 +485,27 @@ export function PostCard({
     const [likesCount, setLikesCount] = useState(post.likes);
     const [commentsCount, setCommentsCount] = useState(post.comments);
     const [showComments, setShowComments] = useState(false);
+    const [ignoreTargetCommentAutoOpen, setIgnoreTargetCommentAutoOpen] =
+        useState(false);
     const [comments, setComments] = useState<PostComment[]>([]);
     const [commentInput, setCommentInput] = useState('');
     const [status, setStatus] = useState('');
     const [canInteract, setCanInteract] = useState(false);
+    const [currentUserId, setCurrentUserId] = useState('');
+    const [busyDeleteId, setBusyDeleteId] = useState('');
+    const [confirmDeleteTarget, setConfirmDeleteTarget] =
+        useState<DeleteTarget | null>(null);
+    const [reportPopper, setReportPopper] = useState<{
+        message: string;
+        tone: 'success' | 'error';
+    } | null>(null);
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [commentsLoading, setCommentsLoading] = useState(false);
     const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
+    const [commentsAutoLoad, setCommentsAutoLoad] = useState(false);
+    const [commentSortOrder, setCommentSortOrder] =
+        useState<CommentSortOrder>('recent');
     const [busyCommentId, setBusyCommentId] = useState('');
     const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
     const [commentsCursor, setCommentsCursor] = useState<string | undefined>(
@@ -497,7 +530,10 @@ export function PostCard({
         setLiked(engagement.likedByCurrentUser);
     }, [post.id]);
 
-    const commentTree = useMemo(() => buildCommentTree(comments), [comments]);
+    const commentTree = useMemo(
+        () => buildCommentTree(comments, commentSortOrder),
+        [commentSortOrder, comments],
+    );
     const commentById = useMemo(
         () => new Map(comments.map((comment) => [comment.id, comment])),
         [comments],
@@ -508,6 +544,7 @@ export function PostCard({
     }, [comments]);
 
     useEffect(() => {
+        setIgnoreTargetCommentAutoOpen(false);
         if (!targetCommentId) {
             focusedCommentIdRef.current = '';
             return;
@@ -529,6 +566,7 @@ export function PostCard({
 
     const loadInitialComments = useCallback(async () => {
         setCommentsLoading(true);
+        setCommentsAutoLoad(false);
         try {
             const page = await fetchPostCommentsPage(post.id, {
                 limit: COMMENTS_INITIAL_LIMIT,
@@ -606,10 +644,12 @@ export function PostCard({
             .then((user) => {
                 if (!mounted) return;
                 setCanInteract(Boolean(user));
+                setCurrentUserId(user?.id ?? '');
             })
             .catch(() => {
                 if (!mounted) return;
                 setCanInteract(false);
+                setCurrentUserId('');
             });
 
         fetchPostEngagement(post.id)
@@ -649,21 +689,29 @@ export function PostCard({
         };
     }, [post.id, refreshEngagement, refreshLoadedComments, showComments]);
 
+    const isAdmin = isAdminViewer === true;
+    const canReport = isAdminViewer === false;
+
     useEffect(() => {
         if (!showComments) return;
         void loadInitialComments();
     }, [loadInitialComments, showComments]);
 
     useEffect(() => {
-        if (!targetCommentId || showComments) return;
+        if (
+            !targetCommentId ||
+            showComments ||
+            ignoreTargetCommentAutoOpen
+        )
+            return;
         setShowComments(true);
-    }, [showComments, targetCommentId]);
+    }, [ignoreTargetCommentAutoOpen, showComments, targetCommentId]);
 
     useEffect(() => {
         if (
             !showComments ||
             !commentsHasMore ||
-            !commentsContainerRef.current ||
+            !commentsAutoLoad ||
             !commentsAnchorRef.current
         )
             return;
@@ -674,27 +722,31 @@ export function PostCard({
                 }
             },
             {
-                root: commentsContainerRef.current,
-                rootMargin: '120px 0px 120px 0px',
+                rootMargin: '260px 0px 260px 0px',
             },
         );
         observer.observe(commentsAnchorRef.current);
         return () => {
             observer.disconnect();
         };
-    }, [commentsHasMore, loadMoreComments, showComments]);
+    }, [commentsAutoLoad, commentsHasMore, loadMoreComments, showComments]);
 
     useEffect(() => {
-        if (!showComments || !targetCommentId || !commentsContainerRef.current) {
+        if (
+            !showComments ||
+            !targetCommentId ||
+            !commentsContainerRef.current
+        ) {
             return;
         }
         if (focusedCommentIdRef.current === targetCommentId) {
             return;
         }
 
-        const targetNode = commentsContainerRef.current.querySelector<HTMLElement>(
-            `[data-feed-comment-id="${targetCommentId}"]`,
-        );
+        const targetNode =
+            commentsContainerRef.current.querySelector<HTMLElement>(
+                `[data-feed-comment-id="${targetCommentId}"]`,
+            );
         if (targetNode) {
             targetNode.scrollIntoView({
                 behavior: 'smooth',
@@ -741,14 +793,29 @@ export function PostCard({
             return;
         }
         try {
-            const mentionPrefix = replyTarget ? `@${replyTarget.authorName} ` : '';
+            if (replyTarget) {
+                const targetComment = commentById.get(replyTarget.commentId);
+                if (
+                    currentUserId &&
+                    targetComment &&
+                    targetComment.userId === currentUserId
+                ) {
+                    throw new Error('You cannot reply to your own comment.');
+                }
+            }
+
+            const mentionPrefix = replyTarget
+                ? `@${replyTarget.authorName} `
+                : '';
             let payload = commentInput.trim();
             if (!payload) {
                 throw new Error('Comment cannot be empty.');
             }
             if (
                 mentionPrefix &&
-                !payload.toLowerCase().startsWith(mentionPrefix.trim().toLowerCase())
+                !payload
+                    .toLowerCase()
+                    .startsWith(mentionPrefix.trim().toLowerCase())
             ) {
                 payload = `${mentionPrefix}${payload}`;
             }
@@ -792,7 +859,122 @@ export function PostCard({
         }
     }
 
+    async function onReportPost() {
+        if (!canInteract) {
+            setReportPopper({
+                message: 'Login required to report content.',
+                tone: 'error',
+            });
+            return;
+        }
+        try {
+            await createContentReport({
+                targetType: 'feed_post',
+                targetId: post.id,
+                reason: 'Feed post reported',
+            });
+            setReportPopper({
+                message: 'Report submitted to admin.',
+                tone: 'success',
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to submit report.';
+            setReportPopper({ message, tone: 'error' });
+        }
+    }
+
+    async function onReportComment(commentId: string) {
+        if (!canInteract) {
+            setReportPopper({
+                message: 'Login required to report content.',
+                tone: 'error',
+            });
+            return;
+        }
+        try {
+            await createContentReport({
+                targetType: 'feed_comment',
+                targetId: commentId,
+                reason: 'Feed comment reported',
+            });
+            setReportPopper({
+                message: 'Report submitted to admin.',
+                tone: 'success',
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to submit report.';
+            setReportPopper({ message, tone: 'error' });
+        }
+    }
+
+    function onAdminDeletePost() {
+        if (!isAdmin) return;
+        setConfirmDeleteTarget({ kind: 'post' });
+    }
+
+    function onAdminDeleteComment(commentId: string) {
+        if (!isAdmin) return;
+        if (busyDeleteId === commentId) return;
+        setConfirmDeleteTarget({ kind: 'comment', commentId });
+    }
+
+    async function onConfirmDelete() {
+        if (!confirmDeleteTarget || !isAdmin) return;
+
+        if (confirmDeleteTarget.kind === 'post') {
+            setBusyDeleteId(post.id);
+            try {
+                await adminDeleteContentTarget({
+                    targetType: 'feed_post',
+                    targetId: post.id,
+                });
+                await Promise.resolve(onPostDeleted?.(post.id));
+                setStatus('Feed post deleted.');
+                setConfirmDeleteTarget(null);
+            } catch (error) {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to delete post.';
+                setStatus(message);
+            } finally {
+                setBusyDeleteId('');
+            }
+            return;
+        }
+
+        setBusyDeleteId(confirmDeleteTarget.commentId);
+        try {
+            await adminDeleteContentTarget({
+                targetType: 'feed_comment',
+                targetId: confirmDeleteTarget.commentId,
+            });
+            await Promise.all([refreshEngagement(), refreshLoadedComments()]);
+            setStatus('Comment deleted.');
+            setConfirmDeleteTarget(null);
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to delete comment.';
+            setStatus(message);
+        } finally {
+            setBusyDeleteId('');
+        }
+    }
+
     function onReplyToComment(comment: PostComment) {
+        if (currentUserId && comment.userId === currentUserId) {
+            setStatus('You cannot reply to your own comment.');
+            return;
+        }
+
         const mentionPrefix = `@${comment.authorName} `;
 
         setReplyTarget({
@@ -837,21 +1019,172 @@ export function PostCard({
             const rest = comment.content.slice(mentionWithSpace.length);
             return (
                 <>
-                    <span className='font-bold text-[#155DFC]'>
-                        {mention}
-                    </span>
+                    <span className='font-bold text-[#155DFC]'>{mention}</span>
                     {rest ? ` ${rest}` : ''}
                 </>
             );
         }
 
         if (comment.content === mention) {
-            return (
-                <span className='font-bold text-[#155DFC]'>{mention}</span>
-            );
+            return <span className='font-bold text-[#155DFC]'>{mention}</span>;
         }
 
         return comment.content;
+    }
+
+    function flattenReplyNodes(nodes: CommentNode[]): CommentNode[] {
+        const flattened: CommentNode[] = [];
+        const walk = (items: CommentNode[]) => {
+            for (const item of items) {
+                flattened.push(item);
+                if (item.replies.length > 0) {
+                    walk(item.replies);
+                }
+            }
+        };
+        walk(nodes);
+        return flattened.sort((a, b) => {
+            const delta = safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt);
+            if (delta !== 0) return delta;
+            return a.id.localeCompare(b.id);
+        });
+    }
+
+    function renderCommentNode(
+        node: CommentNode,
+        depth: number,
+    ): React.ReactNode {
+        const isTarget =
+            Boolean(targetCommentId) && node.id === targetCommentId;
+        const isReplyTargetNode =
+            showComments && replyTarget?.commentId === node.id;
+        return (
+            <div
+                data-feed-comment-id={node.id}
+                className={`rounded-xl bg-white px-2 py-2 text-xs ${
+                    depth > 0 ? 'border border-slate-200/80' : ''
+                } ${isTarget ? 'ring-2 ring-[#155DFC]/70 ring-offset-1' : ''}`}
+            >
+                <div className='flex items-start gap-2'>
+                    <span className='relative mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                        <Image
+                            src={node.authorAvatarUrl ?? FALLBACK_AVATAR_URL}
+                            alt={`${node.authorName} avatar`}
+                            fill
+                            sizes='28px'
+                            className='object-cover'
+                        />
+                    </span>
+                    <div className='min-w-0 flex-1'>
+                        <div className='rounded-2xl bg-slate-100 px-3 py-2'>
+                            <div className='flex items-center justify-between gap-2'>
+                                <p className='font-semibold text-slate-700'>
+                                    {node.authorName}
+                                </p>
+                                <p className='text-[11px] text-slate-500'>
+                                    {formatCommentTime(node.createdAt)}
+                                </p>
+                            </div>
+                            <p className='mt-1 text-slate-700'>
+                                {renderCommentContent(node)}
+                            </p>
+                        </div>
+                        <div className='mt-2 flex items-center gap-2 pl-1'>
+                            <button
+                                type='button'
+                                onClick={() =>
+                                    void onToggleCommentLike(node.id)
+                                }
+                                disabled={busyCommentId === node.id}
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                                    node.likedByCurrentUser
+                                        ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                                aria-label='React to comment'
+                            >
+                                <HeartIcon
+                                    filled={node.likedByCurrentUser}
+                                    className={`h-3.5 w-3.5 ${node.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
+                                />
+                                <span>{node.likes}</span>
+                            </button>
+                            {!currentUserId || node.userId !== currentUserId ? (
+                                <button
+                                    type='button'
+                                    onClick={() => onReplyToComment(node)}
+                                    className='rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50'
+                                >
+                                    Reply
+                                </button>
+                            ) : null}
+                            {canReport ? (
+                                <button
+                                    type='button'
+                                    onClick={() =>
+                                        void onReportComment(node.id)
+                                    }
+                                    disabled={busyDeleteId === node.id}
+                                    className='rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100'
+                                >
+                                    Report
+                                </button>
+                            ) : null}
+                            {isAdmin ? (
+                                <button
+                                    type='button'
+                                    onClick={() =>
+                                        void onAdminDeleteComment(node.id)
+                                    }
+                                    disabled={busyDeleteId === node.id}
+                                    className='rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                >
+                                    Delete
+                                </button>
+                            ) : null}
+                        </div>
+                        {isReplyTargetNode ? (
+                            <form
+                                className='mt-2 flex gap-2 pl-1'
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    void onAddComment();
+                                }}
+                            >
+                                <input
+                                    ref={commentInputRef}
+                                    value={commentInput}
+                                    onChange={(event) =>
+                                        setCommentInput(event.target.value)
+                                    }
+                                    onKeyDown={(event) => {
+                                        if (event.key !== 'Enter') return;
+                                        if (event.nativeEvent.isComposing) return;
+                                        event.preventDefault();
+                                        void onAddComment();
+                                    }}
+                                    placeholder={`Reply to ${replyTarget?.authorName ?? node.authorName}`}
+                                    className='flex-1 rounded-xl border border-cyan-300 bg-white px-3 py-2 text-xs outline-none focus:border-cyan-600'
+                                />
+                                <button
+                                    type='submit'
+                                    className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700'
+                                >
+                                    Send
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={clearReplyTarget}
+                                    className='rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50'
+                                >
+                                    Cancel
+                                </button>
+                            </form>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     function renderCommentNodes(
@@ -859,72 +1192,25 @@ export function PostCard({
         depth = 0,
     ): React.ReactNode {
         return nodes.map((node) => {
-            const isTarget = Boolean(targetCommentId) && node.id === targetCommentId;
+            const flattenedReplies = flattenReplyNodes(node.replies);
+            const replyDepth = Math.min(depth + 1, FEED_COMMENT_INDENT_CAP);
+
             return (
-                <div
-                    key={node.id}
-                    data-feed-comment-id={node.id}
-                    className={`rounded-xl bg-white px-2 py-2 text-xs ${
-                        depth > 0 ? 'border border-slate-200/80' : ''
-                    } ${
-                        isTarget ? 'ring-2 ring-[#155DFC]/70 ring-offset-1' : ''
-                    }`}
-                >
-                    <div className='flex items-start gap-2'>
-                        <span className='relative mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
-                            <Image
-                                src={node.authorAvatarUrl ?? FALLBACK_AVATAR_URL}
-                                alt={`${node.authorName} avatar`}
-                                fill
-                                sizes='28px'
-                                className='object-cover'
-                            />
-                        </span>
-                        <div className='min-w-0 flex-1'>
-                            <div className='rounded-2xl bg-slate-100 px-3 py-2'>
-                                <p className='font-semibold text-slate-700'>
-                                    {node.authorName}
-                                </p>
-                                <p className='mt-1 text-slate-700'>
-                                    {renderCommentContent(node)}
-                                </p>
-                            </div>
-                            <div className='mt-2 flex items-center gap-2 pl-1'>
-                                <button
-                                    type='button'
-                                    onClick={() => void onToggleCommentLike(node.id)}
-                                    disabled={busyCommentId === node.id}
-                                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
-                                        node.likedByCurrentUser
-                                            ? 'border-rose-200 bg-rose-50 text-rose-600'
-                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                    } disabled:cursor-not-allowed disabled:opacity-60`}
-                                    aria-label='React to comment'
-                                >
-                                    <HeartIcon
-                                        filled={node.likedByCurrentUser}
-                                        className={`h-3.5 w-3.5 ${node.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
-                                    />
-                                    <span>{node.likes}</span>
-                                </button>
-                                {depth < FEED_COMMENT_MAX_DEPTH ? (
-                                    <button
-                                        type='button'
-                                        onClick={() => onReplyToComment(node)}
-                                        className='rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50'
-                                    >
-                                        Reply
-                                    </button>
-                                ) : null}
-                            </div>
-                        </div>
-                    </div>
-                    {node.replies.length > 0 ? (
-                        <div className='mt-2 space-y-2 border-l border-slate-200 pl-3'>
-                            {renderCommentNodes(
-                                node.replies,
-                                Math.min(depth + 1, FEED_COMMENT_MAX_DEPTH),
-                            )}
+                <div key={node.id} className='space-y-2'>
+                    {renderCommentNode(node, depth)}
+                    {flattenedReplies.length > 0 ? (
+                        <div
+                            className={`mt-2 space-y-2 ${
+                                depth < FEED_COMMENT_INDENT_CAP
+                                    ? 'border-l border-slate-200 pl-3'
+                                    : ''
+                            }`}
+                        >
+                            {flattenedReplies.map((replyNode) => (
+                                <div key={replyNode.id}>
+                                    {renderCommentNode(replyNode, replyDepth)}
+                                </div>
+                            ))}
                         </div>
                     ) : null}
                 </div>
@@ -949,28 +1235,65 @@ export function PostCard({
 
     const canPrev = activeImageIndex > 0;
     const canNext = activeImageIndex < images.length - 1;
+    const confirmDeleteBusy = confirmDeleteTarget
+        ? confirmDeleteTarget.kind === 'post'
+            ? busyDeleteId === post.id
+            : busyDeleteId === confirmDeleteTarget.commentId
+        : false;
+    const confirmDeleteTitle =
+        confirmDeleteTarget?.kind === 'post'
+            ? 'Delete this feed post?'
+            : 'Delete this comment?';
+    const confirmDeleteDescription =
+        confirmDeleteTarget?.kind === 'post'
+            ? 'This action permanently removes the post and all related comments.'
+            : 'This action permanently removes this comment.';
 
     return (
         <article className='flex min-h-[90svh] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:min-h-[90vh]'>
             <div className='p-4 md:p-5'>
-                <div className='flex items-center gap-3'>
-                    <button
-                        type='button'
-                        onClick={() => openLightbox(0)}
-                        className='h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100'
-                    >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                            src={avatarUrl}
-                            alt={author?.name ?? 'User avatar'}
-                            className='h-full w-full object-cover'
-                        />
-                    </button>
-                    <div className='min-w-0'>
-                        <p className='truncate text-sm font-semibold text-slate-900'>
-                            {author?.name ?? 'Unknown'}
-                        </p>
-                        <p className='text-xs text-slate-500'>{postMeta}</p>
+                <div className='flex items-start justify-between gap-3'>
+                    <div className='flex items-center gap-3'>
+                        <button
+                            type='button'
+                            onClick={() => openLightbox(0)}
+                            className='h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100'
+                        >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                                src={avatarUrl}
+                                alt={author?.name ?? 'User avatar'}
+                                className='h-full w-full object-cover'
+                            />
+                        </button>
+                        <div className='min-w-0'>
+                            <p className='truncate text-sm font-semibold text-slate-900'>
+                                {author?.name ?? 'Unknown'}
+                            </p>
+                            <p className='text-xs text-slate-500'>{postMeta}</p>
+                        </div>
+                    </div>
+                    <div className='flex items-center gap-2'>
+                        {canReport ? (
+                            <button
+                                type='button'
+                                onClick={() => void onReportPost()}
+                                disabled={busyDeleteId === post.id}
+                                className='rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                                Report
+                            </button>
+                        ) : null}
+                        {isAdmin ? (
+                            <button
+                                type='button'
+                                onClick={() => void onAdminDeletePost()}
+                                disabled={busyDeleteId === post.id}
+                                className='rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                                Delete
+                            </button>
+                        ) : null}
                     </div>
                 </div>
                 {post.caption ? (
@@ -1014,6 +1337,10 @@ export function PostCard({
                                 const next = !prev;
                                 if (!next) {
                                     setReplyTarget(null);
+                                    setCommentsAutoLoad(false);
+                                    if (targetCommentId) {
+                                        setIgnoreTargetCommentAutoOpen(true);
+                                    }
                                 }
                                 return next;
                             })
@@ -1030,56 +1357,64 @@ export function PostCard({
                         <span>Comment</span>
                     </button>
                 </div>
-                {replyTarget ? (
-                    <div className='flex items-center justify-between rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800'>
-                        <span>Replying to {replyTarget.authorName}</span>
-                        <button
-                            type='button'
-                            onClick={clearReplyTarget}
-                            className='rounded-md bg-cyan-100 px-2 py-1 font-semibold hover:bg-cyan-200'
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                ) : null}
-                <form
-                    className='flex gap-2'
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        void onAddComment();
-                    }}
-                >
-                    <input
-                        ref={commentInputRef}
-                        value={commentInput}
-                        onChange={(event) =>
-                            setCommentInput(event.target.value)
-                        }
-                        onKeyDown={(event) => {
-                            if (event.key !== 'Enter') return;
-                            if (event.nativeEvent.isComposing) return;
+                {!replyTarget || !showComments ? (
+                    <form
+                        className='flex gap-2'
+                        onSubmit={(event) => {
                             event.preventDefault();
                             void onAddComment();
                         }}
-                        placeholder={
-                            replyTarget
-                                ? `Reply to ${replyTarget.authorName}`
-                                : 'Write a comment'
-                        }
-                        className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
-                    />
-                    <button
-                        type='submit'
-                        className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700'
                     >
-                        Send
-                    </button>
-                </form>
+                        <input
+                            ref={commentInputRef}
+                            value={commentInput}
+                            onChange={(event) =>
+                                setCommentInput(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                                if (event.key !== 'Enter') return;
+                                if (event.nativeEvent.isComposing) return;
+                                event.preventDefault();
+                                void onAddComment();
+                            }}
+                            placeholder='Write a comment'
+                            className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
+                        />
+                        <button
+                            type='submit'
+                            className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700'
+                        >
+                            Send
+                        </button>
+                    </form>
+                ) : null}
                 {showComments ? (
                     <div
                         ref={commentsContainerRef}
-                        className='max-h-72 space-y-2 overflow-y-auto rounded-2xl bg-slate-50 p-3'
+                        className='space-y-2 rounded-2xl bg-slate-50 p-3'
                     >
+                        <div className='flex flex-wrap items-center justify-end gap-2'>
+                            <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
+                                <span>Sort</span>
+                                <select
+                                    value={commentSortOrder}
+                                    onChange={(event) =>
+                                        setCommentSortOrder(
+                                            event.target
+                                                .value as CommentSortOrder,
+                                        )
+                                    }
+                                    className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
+                                >
+                                    <option value='recent'>
+                                        Recently added
+                                    </option>
+                                    <option value='oldest'>
+                                        Oldest first
+                                    </option>
+                                </select>
+                            </label>
+                        </div>
                         {commentsLoading ? (
                             <div className='space-y-2'>
                                 <div className='h-9 w-full animate-pulse rounded-xl bg-slate-200' />
@@ -1107,21 +1442,60 @@ export function PostCard({
                                 Loading more comments...
                             </p>
                         ) : null}
-                        {commentsHasMore && !commentsLoadingMore ? (
+                        {commentsHasMore &&
+                        !commentsLoadingMore &&
+                        !commentsAutoLoad ? (
                             <button
                                 type='button'
-                                onClick={() => void loadMoreComments()}
+                                onClick={() => {
+                                    setCommentsAutoLoad(true);
+                                    void loadMoreComments();
+                                }}
                                 className='mx-auto block rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
                             >
-                                Load more comments
+                                Show more comments
                             </button>
                         ) : null}
+                        <button
+                            type='button'
+                            onClick={() => {
+                                setShowComments(false);
+                                setReplyTarget(null);
+                                setCommentsAutoLoad(false);
+                                if (targetCommentId) {
+                                    setIgnoreTargetCommentAutoOpen(true);
+                                }
+                            }}
+                            className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                        >
+                            Hide all comments
+                        </button>
                     </div>
                 ) : null}
                 {status ? (
                     <p className='text-xs text-slate-500'>{status}</p>
                 ) : null}
             </div>
+            <ConfirmDialog
+                open={Boolean(confirmDeleteTarget)}
+                title={confirmDeleteTitle}
+                description={confirmDeleteDescription}
+                confirmLabel='Delete'
+                busy={confirmDeleteBusy}
+                onCancel={() => {
+                    if (confirmDeleteBusy) return;
+                    setConfirmDeleteTarget(null);
+                }}
+                onConfirm={() => {
+                    void onConfirmDelete();
+                }}
+            />
+            <StatusPopper
+                open={Boolean(reportPopper)}
+                message={reportPopper?.message ?? ''}
+                tone={reportPopper?.tone ?? 'info'}
+                onClose={() => setReportPopper(null)}
+            />
             {lightboxOpen ? (
                 <Lightbox
                     key={`lightbox-${activeImageIndex}`}

@@ -37,6 +37,7 @@ export interface FreedomPost {
     id: string;
     authorId: string;
     authorName?: string;
+    authorAvatarUrl?: string;
     content: string;
     imageUrl?: string;
     likes: number;
@@ -107,6 +108,7 @@ export type NotificationType =
     | 'incognito_like'
     | 'incognito_comment'
     | 'event_created'
+    | 'report_created'
     | 'system';
 
 export interface AppNotification {
@@ -158,4 +160,32 @@ export interface GlobalSearchResults {
     events: SearchEventResult[];
     dates: SearchDateResult[];
     posts: SearchPostResult[];
+}
+
+export type ReportTargetType =
+    | 'feed_post'
+    | 'feed_comment'
+    | 'freedom_post'
+    | 'freedom_comment'
+    | 'incognito_post'
+    | 'incognito_comment';
+
+export type ReportStatus = 'open' | 'declined' | 'resolved';
+
+export interface ContentReport {
+    id: string;
+    reporterUserId: string;
+    reporterName: string;
+    targetType: ReportTargetType;
+    targetId: string;
+    targetPostId?: string;
+    targetHref?: string;
+    reason: string;
+    details: string;
+    status: ReportStatus;
+    reviewedBy?: string;
+    reviewedByName?: string;
+    reviewedAt?: string;
+    actionNote?: string;
+    createdAt: string;
 }

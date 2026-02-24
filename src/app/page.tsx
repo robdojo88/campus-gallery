@@ -7,10 +7,10 @@ export default function Home() {
             <section className='grid gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-[1.1fr_0.9fr] md:p-10'>
                 <div className='space-y-5'>
                     <p className='text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700'>
-                        Camera-first Campus Platform
+                        Camera-first Social Platform
                     </p>
                     <h1 className='text-4xl font-bold tracking-tight md:text-5xl'>
-                        Campus Gallery
+                        Ripple
                     </h1>
                     <p className='max-w-2xl text-base text-slate-600 md:text-lg'>
                         Real-time, role-based, and offline-capable social

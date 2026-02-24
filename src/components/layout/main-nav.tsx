@@ -19,7 +19,6 @@ import type { GlobalSearchResults, UserRole } from '@/lib/types';
 type NavIconName =
     | 'feed'
     | 'camera'
-    // | 'batch'
     | 'date'
     | 'events'
     | 'freedom'
@@ -51,7 +50,6 @@ const EMPTY_SEARCH_RESULTS: GlobalSearchResults = {
 const links = [
     { href: '/feed', label: 'Feed', icon: 'feed' },
     { href: '/camera', label: 'Camera', icon: 'camera' },
-    // { href: '/camera/multi', label: 'Batch', icon: 'batch' },
     { href: '/gallery/date', label: 'Date Folders', icon: 'date' },
     { href: '/gallery/events', label: 'Events', icon: 'events' },
     { href: '/freedom-wall', label: 'Freedom Wall', icon: 'freedom' },
@@ -128,15 +126,6 @@ function Icon({ name, active }: { name: NavIconName; active: boolean }) {
             </svg>
         );
     }
-
-    // if (name === 'batch') {
-    //     return (
-    //         <svg viewBox='0 0 24 24' aria-hidden='true' className={`h-5 w-5 ${colorClass}`} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
-    //             <rect x='3' y='7' width='13' height='13' rx='2' />
-    //             <path d='M16 12h3a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-3' />
-    //         </svg>
-    //     );
-    // }
 
     if (name === 'date') {
         return (
@@ -382,9 +371,8 @@ export function MainNav() {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchLoading, setSearchLoading] = useState(false);
-    const [searchResults, setSearchResults] = useState<GlobalSearchResults>(
-        EMPTY_SEARCH_RESULTS,
-    );
+    const [searchResults, setSearchResults] =
+        useState<GlobalSearchResults>(EMPTY_SEARCH_RESULTS);
     const [searchStatus, setSearchStatus] = useState('');
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const profileMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -645,7 +633,10 @@ export function MainNav() {
         [centerLinks],
     );
     const mobileOverflowActive = useMemo(
-        () => mobileOverflowLinks.some((link) => isLinkActive(pathname, link.href)),
+        () =>
+            mobileOverflowLinks.some((link) =>
+                isLinkActive(pathname, link.href),
+            ),
         [mobileOverflowLinks, pathname],
     );
 
@@ -689,10 +680,16 @@ export function MainNav() {
                         href='/'
                         className='inline-flex items-center gap-2 rounded-xl px-1 py-1 text-lg font-bold tracking-tight text-slate-900'
                     >
-                        <span className='grid h-9 w-9 place-items-center rounded-full bg-blue-600 text-sm font-bold text-white shadow-sm'>
-                            CG
+                        <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
+                            <Image
+                                src='/spiral.png'
+                                alt='Ripple'
+                                fill
+                                className='object-cover'
+                                sizes='36px'
+                            />
                         </span>
-                        <span className='hidden sm:inline'>Campus Gallery</span>
+                        <span className='hidden sm:inline'>Ripple</span>
                     </Link>
                     <div
                         ref={searchWrapperRef}
@@ -736,7 +733,7 @@ export function MainNav() {
                                 }}
                                 placeholder='Search users, events, dates, posts...'
                                 className='w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-500'
-                                aria-label='Search Campus Gallery'
+                                aria-label='Search Ripple'
                             />
                         </form>
                         {searchOpen ? (
@@ -816,9 +813,7 @@ export function MainNav() {
                                                 {searchResults.events.map(
                                                     (eventResult) => (
                                                         <Link
-                                                            key={
-                                                                eventResult.id
-                                                            }
+                                                            key={eventResult.id}
                                                             href={`/gallery/events?event=${eventResult.id}`}
                                                             onClick={() =>
                                                                 setSearchOpen(
@@ -960,7 +955,9 @@ export function MainNav() {
                                     ref={profileMenuDesktopButtonRef}
                                     type='button'
                                     onClick={() =>
-                                        setProfileMenuOpen((current) => !current)
+                                        setProfileMenuOpen(
+                                            (current) => !current,
+                                        )
                                     }
                                     className='relative h-10 w-10 rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
                                     aria-label='Open profile menu'
@@ -1038,12 +1035,18 @@ export function MainNav() {
                 ) : null}
                 <Link
                     href='/'
-                    aria-label='Campus Gallery home'
-                    title='Campus Gallery'
+                    aria-label='Ripple home'
+                    title='Ripple'
                     className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                 >
-                    <span className='grid h-7 w-7 place-items-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-sm'>
-                        CG
+                    <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                        <Image
+                            src='/spiral.png'
+                            alt='Ripple'
+                            fill
+                            className='object-cover'
+                            sizes='28px'
+                        />
                     </span>
                     <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
                         Home

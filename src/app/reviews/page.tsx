@@ -4,15 +4,24 @@ import { useEffect, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
-import { createReview, fetchReviews } from '@/lib/supabase';
-import type { Review } from '@/lib/types';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+    createReview,
+    deleteReview,
+    fetchReviews,
+    getCurrentUserProfile,
+} from '@/lib/supabase';
+import type { Review, UserRole } from '@/lib/types';
 
 export default function ReviewsPage() {
     const [items, setItems] = useState<(Review & { visitorName: string })[]>(
         [],
     );
+    const [role, setRole] = useState<UserRole | null>(null);
     const [reviewText, setReviewText] = useState('');
     const [status, setStatus] = useState('Loading feedback...');
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+    const [busyDeleteId, setBusyDeleteId] = useState('');
 
     useEffect(() => {
         let mounted = true;
@@ -35,7 +44,28 @@ export default function ReviewsPage() {
         };
     }, []);
 
+    useEffect(() => {
+        let mounted = true;
+        getCurrentUserProfile()
+            .then((profile) => {
+                if (!mounted) return;
+                setRole(profile?.role ?? null);
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setRole(null);
+            });
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
     async function submitReview() {
+        if (role !== 'visitor') {
+            setStatus('Only visitors can submit feedback.');
+            return;
+        }
+
         const content = reviewText.trim();
         if (!content) {
             setStatus('Feedback cannot be empty.');
@@ -57,34 +87,55 @@ export default function ReviewsPage() {
         }
     }
 
+    async function onConfirmDeleteReview() {
+        if (role !== 'admin' || !deleteTargetId) return;
+
+        setBusyDeleteId(deleteTargetId);
+        try {
+            await deleteReview(deleteTargetId);
+            const data = await fetchReviews();
+            setItems(data);
+            setStatus('Feedback deleted.');
+            setDeleteTargetId(null);
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : 'Delete failed.';
+            setStatus(message);
+        } finally {
+            setBusyDeleteId('');
+        }
+    }
+
     return (
         <AuthGuard roles={['admin', 'member', 'visitor']}>
             <AppShell>
                 <PageHeader
                     eyebrow='Feedback'
                     title='Visitor Feedback'
-                    description='Visitors can submit text feedback. Admin approval controls publication.'
+                    description='Visitors can submit text feedback. Members and admins can view approved feedback.'
                 />
-                <section className='mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
-                    <h2 className='mb-3 text-lg font-bold'>Add Feedback</h2>
-                    <div className='grid gap-3 md:grid-cols-[1fr_auto]'>
-                        <input
-                            value={reviewText}
-                            onChange={(event) =>
-                                setReviewText(event.target.value)
-                            }
-                            placeholder='Write your feedback'
-                            className='rounded-xl border border-slate-300 px-3 py-2 text-sm'
-                        />
-                        <button
-                            type='button'
-                            onClick={() => void submitReview()}
-                            className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500'
-                        >
-                            Submit
-                        </button>
-                    </div>
-                </section>
+                {role === 'visitor' ? (
+                    <section className='mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
+                        <h2 className='mb-3 text-lg font-bold'>Add Feedback</h2>
+                        <div className='grid gap-3 md:grid-cols-[1fr_auto]'>
+                            <input
+                                value={reviewText}
+                                onChange={(event) =>
+                                    setReviewText(event.target.value)
+                                }
+                                placeholder='Write your feedback'
+                                className='rounded-xl border border-slate-300 px-3 py-2 text-sm'
+                            />
+                            <button
+                                type='button'
+                                onClick={() => void submitReview()}
+                                className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500'
+                            >
+                                Submit
+                            </button>
+                        </div>
+                    </section>
+                ) : null}
                 {status ? (
                     <p className='mb-4 text-sm text-slate-600'>{status}</p>
                 ) : null}
@@ -98,17 +149,18 @@ export default function ReviewsPage() {
                                 <p className='text-sm font-semibold text-slate-800'>
                                     {review.visitorName}
                                 </p>
-                                <span
-                                    className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${
-                                        review.status === 'approved'
-                                            ? 'bg-emerald-100 text-emerald-800'
-                                            : review.status === 'pending'
-                                              ? 'bg-amber-100 text-amber-800'
-                                              : 'bg-red-100 text-red-800'
-                                    }`}
-                                >
-                                    {review.status}
-                                </span>
+                                {role === 'admin' ? (
+                                    <button
+                                        type='button'
+                                        onClick={() =>
+                                            setDeleteTargetId(review.id)
+                                        }
+                                        disabled={busyDeleteId === review.id}
+                                        className='rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                    >
+                                        Delete
+                                    </button>
+                                ) : null}
                             </div>
                             <p className='mt-2 text-sm text-slate-700'>
                                 {review.reviewText}
@@ -116,6 +168,20 @@ export default function ReviewsPage() {
                         </article>
                     ))}
                 </section>
+                <ConfirmDialog
+                    open={Boolean(deleteTargetId)}
+                    title='Delete this feedback?'
+                    description='This action permanently removes this visitor feedback.'
+                    confirmLabel='Delete'
+                    busy={Boolean(deleteTargetId) && busyDeleteId === deleteTargetId}
+                    onCancel={() => {
+                        if (busyDeleteId) return;
+                        setDeleteTargetId(null);
+                    }}
+                    onConfirm={() => {
+                        void onConfirmDeleteReview();
+                    }}
+                />
             </AppShell>
         </AuthGuard>
     );

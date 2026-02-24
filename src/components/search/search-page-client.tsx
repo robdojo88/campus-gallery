@@ -82,7 +82,7 @@ export function SearchPageClient({ query }: { query: string }) {
                             ? `Results for "${normalizedQuery}"`
                             : 'Search'
                     }
-                    description='Find users, event tags, date folders, and matching post captions across Campus Gallery.'
+                    description='Find users, event tags, date folders, and matching post captions across Ripple.'
                 />
 
                 {loading ? (

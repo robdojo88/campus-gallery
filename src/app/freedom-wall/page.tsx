@@ -5,11 +5,18 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { StatusPopper } from '@/components/ui/status-popper';
+import { formatCommentTime } from '@/lib/comment-time';
 import {
+    adminDeleteContentTarget,
     addFreedomPostComment,
+    createContentReport,
     createFreedomPost,
     fetchFreedomPostComments,
     fetchFreedomPosts,
+    getCurrentUserProfile,
+    getSessionUser,
     subscribeToFreedomWall,
     toggleFreedomCommentLike,
     toggleFreedomPostLike,
@@ -18,18 +25,35 @@ import type { FreedomPost, FreedomWallComment } from '@/lib/types';
 
 type CommentNode = FreedomWallComment & { replies: CommentNode[] };
 type ReplyTarget = { commentId: string; parentId: string; authorName: string };
-const FREEDOM_COMMENT_MAX_DEPTH = 2;
+type CommentSortOrder = 'recent' | 'oldest';
+type DeleteTarget =
+    | { kind: 'post'; postId: string }
+    | { kind: 'comment'; postId: string; commentId: string };
+const FREEDOM_COMMENT_INDENT_CAP = 1;
 const COMMENT_AVATAR_FALLBACK = '/avatar-default.svg';
+const COMMENTS_INITIAL_VISIBLE = 10;
+const COMMENTS_PAGE_SIZE = 5;
 
 function safeTimeValue(timestamp: string): number {
     const value = new Date(timestamp).getTime();
     return Number.isNaN(value) ? 0 : value;
 }
 
-function buildCommentTree(comments: FreedomWallComment[]): CommentNode[] {
-    const sorted = [...comments].sort(
-        (a, b) => safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt),
-    );
+function sortComments(
+    comments: FreedomWallComment[],
+    sortOrder: CommentSortOrder,
+): FreedomWallComment[] {
+    return [...comments].sort((a, b) => {
+        const delta = safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt);
+        return sortOrder === 'oldest' ? delta : -delta;
+    });
+}
+
+function buildCommentTree(
+    comments: FreedomWallComment[],
+    sortOrder: CommentSortOrder,
+): CommentNode[] {
+    const sorted = sortComments(comments, sortOrder);
     const byId = new Map<string, CommentNode>();
     for (const comment of sorted) {
         byId.set(comment.id, { ...comment, replies: [] });
@@ -49,10 +73,18 @@ function buildCommentTree(comments: FreedomWallComment[]): CommentNode[] {
 }
 
 function marginStyle(depth: number): CSSProperties {
-    return { marginLeft: `${Math.min(depth, FREEDOM_COMMENT_MAX_DEPTH) * 12}px` };
+    return {
+        marginLeft: `${Math.min(depth, FREEDOM_COMMENT_INDENT_CAP) * 12}px`,
+    };
 }
 
-function HeartIcon({ filled = false, className = 'h-3.5 w-3.5' }: { filled?: boolean; className?: string }) {
+function HeartIcon({
+    filled = false,
+    className = 'h-3.5 w-3.5',
+}: {
+    filled?: boolean;
+    className?: string;
+}) {
     return (
         <svg
             viewBox='0 0 24 24'
@@ -93,18 +125,46 @@ export default function FreedomWallPage() {
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState('');
     const [items, setItems] = useState<FreedomPost[]>([]);
-    const [commentsByPost, setCommentsByPost] = useState<Record<string, FreedomWallComment[]>>({});
-    const [commentInputByPost, setCommentInputByPost] = useState<Record<string, string>>({});
-    const [replyTargetByPost, setReplyTargetByPost] = useState<Record<string, ReplyTarget | null>>(
-        {},
-    );
-    const [openCommentsByPost, setOpenCommentsByPost] = useState<Record<string, boolean>>({});
+    const [commentsByPost, setCommentsByPost] = useState<
+        Record<string, FreedomWallComment[]>
+    >({});
+    const [visibleCommentsByPost, setVisibleCommentsByPost] = useState<
+        Record<string, number>
+    >({});
+    const [autoLoadCommentsByPost, setAutoLoadCommentsByPost] = useState<
+        Record<string, boolean>
+    >({});
+    const [commentSortByPost, setCommentSortByPost] = useState<
+        Record<string, CommentSortOrder>
+    >({});
+    const [commentInputByPost, setCommentInputByPost] = useState<
+        Record<string, string>
+    >({});
+    const [replyTargetByPost, setReplyTargetByPost] = useState<
+        Record<string, ReplyTarget | null>
+    >({});
+    const [openCommentsByPost, setOpenCommentsByPost] = useState<
+        Record<string, boolean>
+    >({});
+    const [ignoreTargetCommentAutoOpen, setIgnoreTargetCommentAutoOpen] =
+        useState(false);
     const [status, setStatus] = useState('Loading posts...');
+    const [reportPopper, setReportPopper] = useState<{
+        message: string;
+        tone: 'success' | 'error';
+    } | null>(null);
     const [loading, setLoading] = useState(true);
     const [posting, setPosting] = useState(false);
     const [busyPostId, setBusyPostId] = useState('');
     const [busyCommentId, setBusyCommentId] = useState('');
+    const [confirmDeleteTarget, setConfirmDeleteTarget] =
+        useState<DeleteTarget | null>(null);
+    const [currentUserId, setCurrentUserId] = useState('');
+    const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
     const openCommentsRef = useRef<Record<string, boolean>>({});
+    const commentsAnchorByPostRef = useRef<
+        Record<string, HTMLDivElement | null>
+    >({});
     const focusedPostIdRef = useRef('');
     const focusedCommentIdRef = useRef('');
 
@@ -143,10 +203,15 @@ export default function FreedomWallPage() {
             const data = await fetchFreedomPosts();
             setItems(data);
             if (!options.keepStatus) {
-                setStatus(data.length === 0 ? 'No freedom wall posts yet.' : '');
+                setStatus(
+                    data.length === 0 ? 'No freedom wall posts yet.' : '',
+                );
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load freedom wall posts.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to load freedom wall posts.';
             setStatus(message);
         } finally {
             setLoading(false);
@@ -157,10 +222,44 @@ export default function FreedomWallPage() {
         try {
             const comments = await fetchFreedomPostComments(postId);
             setCommentsByPost((prev) => ({ ...prev, [postId]: comments }));
+            setVisibleCommentsByPost((prev) => {
+                const defaultVisible = Math.min(
+                    COMMENTS_INITIAL_VISIBLE,
+                    comments.length,
+                );
+                const existing = prev[postId];
+                if (typeof existing === 'number') {
+                    const nextVisible =
+                        existing > 0 ? existing : defaultVisible;
+                    return {
+                        ...prev,
+                        [postId]: Math.min(nextVisible, comments.length),
+                    };
+                }
+                return {
+                    ...prev,
+                    [postId]: defaultVisible,
+                };
+            });
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load comments.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to load comments.';
             setStatus(message);
         }
+    }
+
+    function revealMoreComments(postId: string) {
+        setVisibleCommentsByPost((prev) => {
+            const total = (commentsByPost[postId] ?? []).length;
+            const current =
+                prev[postId] ?? Math.min(COMMENTS_INITIAL_VISIBLE, total);
+            return {
+                ...prev,
+                [postId]: Math.min(current + COMMENTS_PAGE_SIZE, total),
+            };
+        });
     }
 
     useEffect(() => {
@@ -170,18 +269,37 @@ export default function FreedomWallPage() {
             if (!mounted) return;
         }
 
+        void Promise.all([
+            getSessionUser(),
+            getCurrentUserProfile().catch(() => null),
+        ])
+            .then(([user, profile]) => {
+                if (!mounted) return;
+                setCurrentUserId(user?.id ?? '');
+                setIsAdmin(profile?.role === 'admin');
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setCurrentUserId('');
+                setIsAdmin(false);
+            });
+
         void initialLoad();
         const unsubscribe = subscribeToFreedomWall(() => {
             void loadPosts({ keepStatus: true });
-            Object.entries(openCommentsRef.current).forEach(([postId, isOpen]) => {
-                if (isOpen) void loadComments(postId);
-            });
+            Object.entries(openCommentsRef.current).forEach(
+                ([postId, isOpen]) => {
+                    if (isOpen) void loadComments(postId);
+                },
+            );
         });
         const pollingTimer = window.setInterval(() => {
             void loadPosts({ keepStatus: true });
-            Object.entries(openCommentsRef.current).forEach(([postId, isOpen]) => {
-                if (isOpen) void loadComments(postId);
-            });
+            Object.entries(openCommentsRef.current).forEach(
+                ([postId, isOpen]) => {
+                    if (isOpen) void loadComments(postId);
+                },
+            );
         }, 2500);
 
         return () => {
@@ -193,7 +311,9 @@ export default function FreedomWallPage() {
 
     useEffect(() => {
         if (!targetPostId || focusedPostIdRef.current === targetPostId) return;
-        const targetNode = document.querySelector<HTMLElement>(`[data-freedom-post-id="${targetPostId}"]`);
+        const targetNode = document.querySelector<HTMLElement>(
+            `[data-freedom-post-id="${targetPostId}"]`,
+        );
         if (!targetNode) return;
         targetNode.scrollIntoView({
             behavior: 'smooth',
@@ -203,6 +323,7 @@ export default function FreedomWallPage() {
     }, [items, targetPostId]);
 
     useEffect(() => {
+        setIgnoreTargetCommentAutoOpen(false);
         if (!targetCommentId) {
             focusedCommentIdRef.current = '';
             return;
@@ -213,12 +334,20 @@ export default function FreedomWallPage() {
     }, [targetCommentId]);
 
     useEffect(() => {
-        if (!targetPostId || !targetCommentId) return;
+        if (
+            !targetPostId ||
+            !targetCommentId ||
+            ignoreTargetCommentAutoOpen
+        )
+            return;
         if (focusedCommentIdRef.current === targetCommentId) return;
 
         const commentsOpen = Boolean(openCommentsByPost[targetPostId]);
         if (!commentsOpen) {
-            setOpenCommentsByPost((prev) => ({ ...prev, [targetPostId]: true }));
+            setOpenCommentsByPost((prev) => ({
+                ...prev,
+                [targetPostId]: true,
+            }));
             void loadComments(targetPostId);
             return;
         }
@@ -235,13 +364,77 @@ export default function FreedomWallPage() {
             return;
         }
 
+        const loadedComments = commentsByPost[targetPostId] ?? [];
+        const sortOrder = commentSortByPost[targetPostId] ?? 'recent';
+        const sortedLoadedComments = sortComments(loadedComments, sortOrder);
+        const targetIndex = sortedLoadedComments.findIndex(
+            (comment) => comment.id === targetCommentId,
+        );
+        if (targetIndex >= 0) {
+            const visibleCount =
+                visibleCommentsByPost[targetPostId] ??
+                Math.min(COMMENTS_INITIAL_VISIBLE, sortedLoadedComments.length);
+            if (visibleCount <= targetIndex) {
+                setVisibleCommentsByPost((prev) => ({
+                    ...prev,
+                    [targetPostId]: targetIndex + 1,
+                }));
+                return;
+            }
+        }
+
         if (targetPostId in commentsByPost) {
             focusedCommentIdRef.current = targetCommentId;
             return;
         }
 
         void loadComments(targetPostId);
-    }, [commentsByPost, openCommentsByPost, targetCommentId, targetPostId]);
+    }, [
+        commentsByPost,
+        openCommentsByPost,
+        targetCommentId,
+        targetPostId,
+        commentSortByPost,
+        visibleCommentsByPost,
+        ignoreTargetCommentAutoOpen,
+    ]);
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    if (!entry.isIntersecting) continue;
+                    const postId = (entry.target as HTMLElement).dataset.postId;
+                    if (!postId) continue;
+                    revealMoreComments(postId);
+                }
+            },
+            { rootMargin: '260px 0px 260px 0px' },
+        );
+
+        Object.entries(openCommentsByPost).forEach(([postId, isOpen]) => {
+            if (!isOpen) return;
+            if (!autoLoadCommentsByPost[postId]) return;
+            const total = (commentsByPost[postId] ?? []).length;
+            const visible =
+                visibleCommentsByPost[postId] ??
+                Math.min(COMMENTS_INITIAL_VISIBLE, total);
+            if (visible >= total) return;
+            const node = commentsAnchorByPostRef.current[postId];
+            if (node) {
+                observer.observe(node);
+            }
+        });
+
+        return () => {
+            observer.disconnect();
+        };
+    }, [
+        autoLoadCommentsByPost,
+        commentsByPost,
+        openCommentsByPost,
+        visibleCommentsByPost,
+    ]);
 
     async function submitPost() {
         if (posting) return;
@@ -257,7 +450,8 @@ export default function FreedomWallPage() {
             await loadPosts();
             setStatus('Posted to Freedom Wall.');
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to post.';
+            const message =
+                error instanceof Error ? error.message : 'Failed to post.';
             setStatus(message);
         } finally {
             setPosting(false);
@@ -271,7 +465,10 @@ export default function FreedomWallPage() {
             await toggleFreedomPostLike(postId);
             await loadPosts({ keepStatus: true });
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to update like.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to update like.';
             setStatus(message);
         } finally {
             setBusyPostId('');
@@ -283,8 +480,13 @@ export default function FreedomWallPage() {
         setOpenCommentsByPost((prev) => ({ ...prev, [postId]: nextOpen }));
         if (!nextOpen) {
             setReplyTargetByPost((prev) => ({ ...prev, [postId]: null }));
+            setAutoLoadCommentsByPost((prev) => ({ ...prev, [postId]: false }));
+            if (postId === targetPostId && targetCommentId) {
+                setIgnoreTargetCommentAutoOpen(true);
+            }
         }
         if (nextOpen) {
+            setAutoLoadCommentsByPost((prev) => ({ ...prev, [postId]: false }));
             await loadComments(postId);
         }
     }
@@ -296,11 +498,27 @@ export default function FreedomWallPage() {
         setBusyPostId(postId);
         try {
             const replyTarget = replyTargetByPost[postId];
-            const mentionPrefix = replyTarget ? `@${replyTarget.authorName} ` : '';
+            if (replyTarget) {
+                const targetComment = (commentsByPost[postId] ?? []).find(
+                    (comment) => comment.id === replyTarget.commentId,
+                );
+                if (
+                    currentUserId &&
+                    targetComment &&
+                    targetComment.userId === currentUserId
+                ) {
+                    throw new Error('You cannot reply to your own comment.');
+                }
+            }
+            const mentionPrefix = replyTarget
+                ? `@${replyTarget.authorName} `
+                : '';
             let payload = contentValue;
             if (
                 mentionPrefix &&
-                !payload.toLowerCase().startsWith(mentionPrefix.trim().toLowerCase())
+                !payload
+                    .toLowerCase()
+                    .startsWith(mentionPrefix.trim().toLowerCase())
             ) {
                 payload = `${mentionPrefix}${payload}`;
             }
@@ -313,9 +531,15 @@ export default function FreedomWallPage() {
             setCommentInputByPost((prev) => ({ ...prev, [postId]: '' }));
             setReplyTargetByPost((prev) => ({ ...prev, [postId]: null }));
             setOpenCommentsByPost((prev) => ({ ...prev, [postId]: true }));
-            await Promise.all([loadPosts({ keepStatus: true }), loadComments(postId)]);
+            await Promise.all([
+                loadPosts({ keepStatus: true }),
+                loadComments(postId),
+            ]);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to add comment.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to add comment.';
             setStatus(message);
         } finally {
             setBusyPostId('');
@@ -323,6 +547,11 @@ export default function FreedomWallPage() {
     }
 
     function setReplyTarget(postId: string, comment: FreedomWallComment) {
+        if (currentUserId && comment.userId === currentUserId) {
+            setStatus('You cannot reply to your own comment.');
+            return;
+        }
+
         const mentionPrefix = `@${comment.authorName} `;
         setReplyTargetByPost((prev) => ({
             ...prev,
@@ -338,7 +567,11 @@ export default function FreedomWallPage() {
             if (!trimmedExisting) {
                 return { ...prev, [postId]: mentionPrefix };
             }
-            if (trimmedExisting.toLowerCase().startsWith(mentionPrefix.trim().toLowerCase())) {
+            if (
+                trimmedExisting
+                    .toLowerCase()
+                    .startsWith(mentionPrefix.trim().toLowerCase())
+            ) {
                 return prev;
             }
             return { ...prev, [postId]: `${mentionPrefix}${existing}` };
@@ -356,14 +589,125 @@ export default function FreedomWallPage() {
             await toggleFreedomCommentLike(commentId);
             await loadComments(postId);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to update comment reaction.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to update comment reaction.';
             setStatus(message);
         } finally {
             setBusyCommentId('');
         }
     }
 
-    function renderCommentContent(comment: FreedomWallComment, commentById: Map<string, FreedomWallComment>): React.ReactNode {
+    async function onReportPost(postId: string) {
+        try {
+            await createContentReport({
+                targetType: 'freedom_post',
+                targetId: postId,
+                reason: 'Freedom Wall post reported',
+            });
+            setReportPopper({
+                message: 'Report submitted to admin.',
+                tone: 'success',
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to submit report.';
+            setReportPopper({ message, tone: 'error' });
+        }
+    }
+
+    async function onReportComment(commentId: string) {
+        try {
+            await createContentReport({
+                targetType: 'freedom_comment',
+                targetId: commentId,
+                reason: 'Freedom Wall comment reported',
+            });
+            setReportPopper({
+                message: 'Report submitted to admin.',
+                tone: 'success',
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to submit report.';
+            setReportPopper({ message, tone: 'error' });
+        }
+    }
+
+    function onAdminDeletePost(postId: string) {
+        if (!isAdmin) return;
+        setConfirmDeleteTarget({ kind: 'post', postId });
+    }
+
+    function onAdminDeleteComment(postId: string, commentId: string) {
+        if (!isAdmin) return;
+        if (busyCommentId === commentId || busyPostId === postId) return;
+        setConfirmDeleteTarget({ kind: 'comment', postId, commentId });
+    }
+
+    async function onConfirmDelete() {
+        if (!confirmDeleteTarget || !isAdmin) return;
+
+        if (confirmDeleteTarget.kind === 'post') {
+            setBusyPostId(confirmDeleteTarget.postId);
+            try {
+                await adminDeleteContentTarget({
+                    targetType: 'freedom_post',
+                    targetId: confirmDeleteTarget.postId,
+                });
+                setCommentsByPost((prev) => {
+                    if (!(confirmDeleteTarget.postId in prev)) return prev;
+                    const next = { ...prev };
+                    delete next[confirmDeleteTarget.postId];
+                    return next;
+                });
+                await loadPosts({ keepStatus: true });
+                setStatus('Freedom Wall post deleted.');
+                setConfirmDeleteTarget(null);
+            } catch (error) {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to delete post.';
+                setStatus(message);
+            } finally {
+                setBusyPostId('');
+            }
+            return;
+        }
+
+        setBusyCommentId(confirmDeleteTarget.commentId);
+        try {
+            await adminDeleteContentTarget({
+                targetType: 'freedom_comment',
+                targetId: confirmDeleteTarget.commentId,
+            });
+            await Promise.all([
+                loadPosts({ keepStatus: true }),
+                loadComments(confirmDeleteTarget.postId),
+            ]);
+            setStatus('Comment deleted.');
+            setConfirmDeleteTarget(null);
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to delete comment.';
+            setStatus(message);
+        } finally {
+            setBusyCommentId('');
+        }
+    }
+
+    function renderCommentContent(
+        comment: FreedomWallComment,
+        commentById: Map<string, FreedomWallComment>,
+    ): React.ReactNode {
         if (!comment.parentId) return comment.content;
         const parent = commentById.get(comment.parentId);
         if (!parent) return comment.content;
@@ -387,15 +731,37 @@ export default function FreedomWallPage() {
         return comment.content;
     }
 
-    function renderComments(
-        nodes: CommentNode[],
+    function flattenReplyNodes(nodes: CommentNode[]): CommentNode[] {
+        const flattened: CommentNode[] = [];
+        const walk = (items: CommentNode[]) => {
+            for (const item of items) {
+                flattened.push(item);
+                if (item.replies.length > 0) {
+                    walk(item.replies);
+                }
+            }
+        };
+        walk(nodes);
+        return flattened.sort((a, b) => {
+            const delta = safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt);
+            if (delta !== 0) return delta;
+            return a.id.localeCompare(b.id);
+        });
+    }
+
+    function renderCommentNode(
+        node: CommentNode,
         postId: string,
         commentById: Map<string, FreedomWallComment>,
-        depth = 0,
+        depth: number,
     ): React.ReactNode {
-        return nodes.map((node) => (
+        const replyTarget = replyTargetByPost[postId];
+        const commentInput = commentInputByPost[postId] ?? '';
+        const isReplyTargetNode = Boolean(
+            replyTarget && replyTarget.commentId === node.id,
+        );
+        return (
             <div
-                key={node.id}
                 data-freedom-comment-id={node.id}
                 className={`space-y-2 rounded-xl ${
                     targetCommentId && node.id === targetCommentId
@@ -408,7 +774,10 @@ export default function FreedomWallPage() {
                     <div className='flex items-start gap-2'>
                         <span className='relative mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
                             <Image
-                                src={node.authorAvatarUrl ?? COMMENT_AVATAR_FALLBACK}
+                                src={
+                                    node.authorAvatarUrl ??
+                                    COMMENT_AVATAR_FALLBACK
+                                }
                                 alt={`${node.authorName} avatar`}
                                 fill
                                 sizes='28px'
@@ -418,16 +787,30 @@ export default function FreedomWallPage() {
                         <div className='min-w-0 flex-1'>
                             <div className='rounded-2xl bg-slate-100 px-3 py-2'>
                                 <div className='flex items-center justify-between gap-2'>
-                                    <p className='text-xs font-semibold text-slate-800'>{node.authorName}</p>
-                                    <p className='text-[11px] text-slate-500'>{new Date(node.createdAt).toLocaleString()}</p>
+                                    <p className='text-xs font-semibold text-slate-800'>
+                                        {node.authorName}
+                                    </p>
+                                    <p className='text-[11px] text-slate-500'>
+                                        {formatCommentTime(node.createdAt)}
+                                    </p>
                                 </div>
-                                <p className='mt-1 text-sm text-slate-700'>{renderCommentContent(node, commentById)}</p>
+                                <p className='mt-1 text-sm text-slate-700'>
+                                    {renderCommentContent(node, commentById)}
+                                </p>
                             </div>
                             <div className='mt-2 flex items-center gap-2 pl-1'>
                                 <button
                                     type='button'
-                                    onClick={() => void onToggleCommentLike(postId, node.id)}
-                                    disabled={busyCommentId === node.id || busyPostId === postId}
+                                    onClick={() =>
+                                        void onToggleCommentLike(
+                                            postId,
+                                            node.id,
+                                        )
+                                    }
+                                    disabled={
+                                        busyCommentId === node.id ||
+                                        busyPostId === postId
+                                    }
                                     className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
                                         node.likedByCurrentUser
                                             ? 'border-rose-200 bg-rose-50 text-rose-600'
@@ -441,32 +824,153 @@ export default function FreedomWallPage() {
                                     />
                                     <span>{node.likes}</span>
                                 </button>
-                                {depth < FREEDOM_COMMENT_MAX_DEPTH ? (
+                                {!currentUserId ||
+                                node.userId !== currentUserId ? (
                                     <button
                                         type='button'
-                                        onClick={() => setReplyTarget(postId, node)}
+                                        onClick={() =>
+                                            setReplyTarget(postId, node)
+                                        }
                                         className='rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50'
                                     >
                                         Reply
                                     </button>
                                 ) : null}
+                                {canReport ? (
+                                    <button
+                                        type='button'
+                                        onClick={() =>
+                                            void onReportComment(node.id)
+                                        }
+                                        disabled={
+                                            busyCommentId === node.id ||
+                                            busyPostId === postId
+                                        }
+                                        className='rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100'
+                                    >
+                                        Report
+                                    </button>
+                                ) : null}
+                                {isAdmin ? (
+                                    <button
+                                        type='button'
+                                        onClick={() =>
+                                            void onAdminDeleteComment(
+                                                postId,
+                                                node.id,
+                                            )
+                                        }
+                                        disabled={
+                                            busyCommentId === node.id ||
+                                            busyPostId === postId
+                                        }
+                                        className='rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                    >
+                                        Delete
+                                    </button>
+                                ) : null}
                             </div>
+                            {isReplyTargetNode ? (
+                                <form
+                                    className='mt-2 flex gap-2 pl-1'
+                                    onSubmit={(event) => {
+                                        event.preventDefault();
+                                        void submitComment(postId);
+                                    }}
+                                >
+                                    <input
+                                        autoFocus
+                                        value={commentInput}
+                                        onChange={(event) =>
+                                            setCommentInputByPost((prev) => ({
+                                                ...prev,
+                                                [postId]: event.target.value,
+                                            }))
+                                        }
+                                        onKeyDown={(event) => {
+                                            if (event.key !== 'Enter') return;
+                                            if (event.nativeEvent.isComposing)
+                                                return;
+                                            event.preventDefault();
+                                            void submitComment(postId);
+                                        }}
+                                        placeholder={`Reply to ${replyTarget?.authorName ?? node.authorName}`}
+                                        className='flex-1 rounded-xl border border-cyan-300 bg-white px-3 py-2 text-xs outline-none focus:border-cyan-600'
+                                    />
+                                    <button
+                                        type='submit'
+                                        className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700'
+                                    >
+                                        Send
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => clearReplyTarget(postId)}
+                                        className='rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50'
+                                    >
+                                        Cancel
+                                    </button>
+                                </form>
+                            ) : null}
                         </div>
                     </div>
                 </article>
-                {node.replies.length > 0 ? (
-                    <div className='space-y-2 border-l border-slate-200 pl-3'>
-                        {renderComments(
-                            node.replies,
-                            postId,
-                            commentById,
-                            Math.min(depth + 1, FREEDOM_COMMENT_MAX_DEPTH),
-                        )}
-                    </div>
-                ) : null}
             </div>
-        ));
+        );
     }
+
+    function renderComments(
+        nodes: CommentNode[],
+        postId: string,
+        commentById: Map<string, FreedomWallComment>,
+        depth = 0,
+    ): React.ReactNode {
+        return nodes.map((node) => {
+            const flattenedReplies = flattenReplyNodes(node.replies);
+            const replyDepth = Math.min(depth + 1, FREEDOM_COMMENT_INDENT_CAP);
+
+            return (
+                <div key={node.id} className='space-y-2'>
+                    {renderCommentNode(node, postId, commentById, depth)}
+                    {flattenedReplies.length > 0 ? (
+                        <div
+                            className={`space-y-2 ${
+                                depth < FREEDOM_COMMENT_INDENT_CAP
+                                    ? 'border-l border-slate-200 pl-3'
+                                    : ''
+                            }`}
+                        >
+                            {flattenedReplies.map((replyNode) => (
+                                <div key={replyNode.id}>
+                                    {renderCommentNode(
+                                        replyNode,
+                                        postId,
+                                        commentById,
+                                        replyDepth,
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+            );
+        });
+    }
+
+    const confirmDeleteBusy = confirmDeleteTarget
+        ? confirmDeleteTarget.kind === 'post'
+            ? busyPostId === confirmDeleteTarget.postId
+            : busyCommentId === confirmDeleteTarget.commentId
+        : false;
+    const confirmDeleteTitle =
+        confirmDeleteTarget?.kind === 'post'
+            ? 'Delete this Freedom Wall post?'
+            : 'Delete this comment?';
+    const confirmDeleteDescription =
+        confirmDeleteTarget?.kind === 'post'
+            ? 'This action permanently removes the post and all related comments.'
+            : 'This action permanently removes this comment.';
+    const canReport = isAdmin === false;
 
     return (
         <AuthGuard roles={['admin', 'member']}>
@@ -486,13 +990,17 @@ export default function FreedomWallPage() {
                             disabled={posting}
                             className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                         />
-                        <div className='flex flex-wrap items-center gap-3'>
+                        <div className='flex flex-wrap items-center gap-3 justify-between'>
                             <label className='inline-flex cursor-pointer items-center rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50'>
                                 <input
                                     type='file'
                                     accept='image/*'
                                     disabled={posting}
-                                    onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+                                    onChange={(event) =>
+                                        setImageFile(
+                                            event.target.files?.[0] ?? null,
+                                        )
+                                    }
                                     className='hidden'
                                 />
                                 Choose Image
@@ -507,7 +1015,19 @@ export default function FreedomWallPage() {
                                     Remove Image
                                 </button>
                             ) : null}
-                            {imageFile ? <p className='text-xs text-slate-500'>{imageFile.name}</p> : null}
+                            {imageFile ? (
+                                <p className='text-xs text-slate-500'>
+                                    {imageFile.name}
+                                </p>
+                            ) : null}
+                            <button
+                                type='button'
+                                onClick={() => void submitPost()}
+                                disabled={posting}
+                                className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                                {posting ? 'Posting...' : 'Post'}
+                            </button>
                         </div>
                         {imagePreviewUrl ? (
                             <div className='relative max-w-sm overflow-hidden rounded-2xl border border-slate-200'>
@@ -521,30 +1041,64 @@ export default function FreedomWallPage() {
                                 />
                             </div>
                         ) : null}
-                        <button
+                        {/* <button
                             type='button'
                             onClick={() => void submitPost()}
                             disabled={posting}
                             className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                         >
                             {posting ? 'Posting...' : 'Post'}
-                        </button>
+                        </button> */}
                     </div>
                 </section>
 
                 {status ? (
-                    <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>{status}</p>
+                    <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
+                        {status}
+                    </p>
                 ) : null}
 
                 {!loading ? (
                     <section className='space-y-4'>
                         {items.map((post) => {
                             const comments = commentsByPost[post.id] ?? [];
-                            const commentTree = buildCommentTree(comments);
-                            const commentById = new Map(comments.map((comment) => [comment.id, comment]));
+                            const sortOrder =
+                                commentSortByPost[post.id] ?? 'recent';
+                            const sortedComments = sortComments(
+                                comments,
+                                sortOrder,
+                            );
+                            const visibleCount =
+                                visibleCommentsByPost[post.id] ??
+                                Math.min(
+                                    COMMENTS_INITIAL_VISIBLE,
+                                    sortedComments.length,
+                                );
+                            const visibleComments = sortedComments.slice(
+                                0,
+                                visibleCount,
+                            );
+                            const hasHiddenComments =
+                                sortedComments.length > visibleCount;
+                            const commentTree = buildCommentTree(
+                                visibleComments,
+                                sortOrder,
+                            );
+                            const commentById = new Map(
+                                visibleComments.map((comment) => [
+                                    comment.id,
+                                    comment,
+                                ]),
+                            );
                             const replyTarget = replyTargetByPost[post.id];
-                            const commentInput = commentInputByPost[post.id] ?? '';
-                            const commentsOpen = Boolean(openCommentsByPost[post.id]);
+                            const commentInput =
+                                commentInputByPost[post.id] ?? '';
+                            const commentsOpen = Boolean(
+                                openCommentsByPost[post.id],
+                            );
+                            const autoLoadComments = Boolean(
+                                autoLoadCommentsByPost[post.id],
+                            );
                             const busy = busyPostId === post.id;
 
                             return (
@@ -555,13 +1109,68 @@ export default function FreedomWallPage() {
                                     className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
                                 >
                                     <div className='flex items-start justify-between gap-3'>
-                                        <div>
-                                            <p className='text-sm font-semibold text-slate-800'>{post.authorName ?? 'Unknown'}</p>
-                                            <p className='mt-1 text-xs text-slate-500'>{new Date(post.createdAt).toLocaleString()}</p>
+                                        <div className='flex items-center gap-3'>
+                                            <span className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                                                <Image
+                                                    src={
+                                                        post.authorAvatarUrl ??
+                                                        COMMENT_AVATAR_FALLBACK
+                                                    }
+                                                    alt={`${post.authorName ?? 'User'} avatar`}
+                                                    fill
+                                                    sizes='40px'
+                                                    className='object-cover'
+                                                />
+                                            </span>
+                                            <div className='min-w-0'>
+                                                <p className='truncate text-sm font-semibold text-slate-800'>
+                                                    {post.authorName ??
+                                                        'Unknown'}
+                                                </p>
+                                                <p className='mt-1 text-xs text-slate-500'>
+                                                    {formatCommentTime(
+                                                        post.createdAt,
+                                                    )}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className='flex items-center gap-2'>
+                                            {canReport ? (
+                                                <button
+                                                    type='button'
+                                                    onClick={() =>
+                                                        void onReportPost(
+                                                            post.id,
+                                                        )
+                                                    }
+                                                    disabled={busy}
+                                                    className='rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                                >
+                                                    Report
+                                                </button>
+                                            ) : null}
+                                            {isAdmin ? (
+                                                <button
+                                                    type='button'
+                                                    onClick={() =>
+                                                        void onAdminDeletePost(
+                                                            post.id,
+                                                        )
+                                                    }
+                                                    disabled={busy}
+                                                    className='rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                                >
+                                                    Delete
+                                                </button>
+                                            ) : null}
                                         </div>
                                     </div>
 
-                                    {post.content ? <p className='mt-3 text-sm text-slate-700'>{post.content}</p> : null}
+                                    {post.content ? (
+                                        <p className='mt-3 text-sm text-slate-700'>
+                                            {post.content}
+                                        </p>
+                                    ) : null}
                                     {post.imageUrl ? (
                                         <div className='relative mt-3 overflow-hidden rounded-2xl border border-slate-200'>
                                             <Image
@@ -577,7 +1186,10 @@ export default function FreedomWallPage() {
                                     <div className='mt-4 space-y-3'>
                                         <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
                                             <div className='inline-flex items-center gap-1.5'>
-                                                <HeartIcon filled className='h-4 w-4 text-rose-500' />
+                                                <HeartIcon
+                                                    filled
+                                                    className='h-4 w-4 text-rose-500'
+                                                />
                                                 <span>{post.likes}</span>
                                             </div>
                                             <div className='inline-flex items-center gap-1.5'>
@@ -588,7 +1200,9 @@ export default function FreedomWallPage() {
                                         <div className='grid grid-cols-2 gap-2'>
                                             <button
                                                 type='button'
-                                                onClick={() => void onToggleLike(post.id)}
+                                                onClick={() =>
+                                                    void onToggleLike(post.id)
+                                                }
                                                 disabled={busy}
                                                 className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
                                                     post.likedByCurrentUser
@@ -597,68 +1211,154 @@ export default function FreedomWallPage() {
                                                 } disabled:cursor-not-allowed disabled:opacity-60`}
                                             >
                                                 <HeartIcon
-                                                    filled={post.likedByCurrentUser}
+                                                    filled={
+                                                        post.likedByCurrentUser
+                                                    }
                                                     className={`h-4 w-4 ${post.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
                                                 />
                                                 <span>Like</span>
                                             </button>
                                             <button
                                                 type='button'
-                                                onClick={() => void toggleComments(post.id)}
+                                                onClick={() =>
+                                                    void toggleComments(post.id)
+                                                }
                                                 className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
                                                     commentsOpen
                                                         ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
                                                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                                                 }`}
                                             >
-                                                <CommentIcon className={`h-4 w-4 ${commentsOpen ? 'text-cyan-700' : 'text-slate-500'}`} />
-                                                <span>{commentsOpen ? 'Hide' : 'Comment'}</span>
+                                                <CommentIcon
+                                                    className={`h-4 w-4 ${commentsOpen ? 'text-cyan-700' : 'text-slate-500'}`}
+                                                />
+                                                <span>
+                                                    {commentsOpen
+                                                        ? 'Hide'
+                                                        : 'Comment'}
+                                                </span>
                                             </button>
                                         </div>
                                     </div>
 
                                     {commentsOpen ? (
                                         <div className='mt-4 space-y-3'>
+                                            <div className='flex flex-wrap items-center justify-end gap-2'>
+                                                <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
+                                                    <span>Sort</span>
+                                                    <select
+                                                        value={sortOrder}
+                                                        onChange={(event) =>
+                                                            setCommentSortByPost(
+                                                                (prev) => ({
+                                                                    ...prev,
+                                                                    [post.id]:
+                                                                        event
+                                                                            .target
+                                                                            .value as CommentSortOrder,
+                                                                }),
+                                                            )
+                                                        }
+                                                        className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
+                                                    >
+                                                        <option value='recent'>
+                                                            Recently added
+                                                        </option>
+                                                        <option value='oldest'>
+                                                            Oldest first
+                                                        </option>
+                                                    </select>
+                                                </label>
+                                            </div>
                                             {commentTree.length === 0 ? (
-                                                <p className='text-xs text-slate-500'>No comments yet.</p>
+                                                <p className='text-xs text-slate-500'>
+                                                    No comments yet.
+                                                </p>
                                             ) : (
-                                                <div className='space-y-2'>{renderComments(commentTree, post.id, commentById)}</div>
+                                                <div className='space-y-2'>
+                                                    {renderComments(
+                                                        commentTree,
+                                                        post.id,
+                                                        commentById,
+                                                    )}
+                                                </div>
                                             )}
+                                            {hasHiddenComments &&
+                                            !autoLoadComments ? (
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        setAutoLoadCommentsByPost(
+                                                            (prev) => ({
+                                                                ...prev,
+                                                                [post.id]: true,
+                                                            }),
+                                                        );
+                                                        revealMoreComments(
+                                                            post.id,
+                                                        );
+                                                    }}
+                                                    className='mx-auto block rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                                >
+                                                    Show more comments
+                                                </button>
+                                            ) : null}
+                                            {hasHiddenComments ? (
+                                                <div
+                                                    ref={(node) => {
+                                                        commentsAnchorByPostRef.current[
+                                                            post.id
+                                                        ] = node;
+                                                    }}
+                                                    data-post-id={post.id}
+                                                    className='h-2 w-full'
+                                                    aria-hidden='true'
+                                                />
+                                            ) : null}
 
-                                            {replyTarget ? (
-                                                <div className='flex items-center justify-between rounded-xl bg-cyan-50 px-3 py-2 text-xs text-cyan-800'>
-                                                    <span>Replying to {replyTarget.authorName}</span>
+                                            {!replyTarget ? (
+                                                <div className='flex gap-2'>
+                                                    <input
+                                                        value={commentInput}
+                                                        onChange={(event) =>
+                                                            setCommentInputByPost(
+                                                                (prev) => ({
+                                                                    ...prev,
+                                                                    [post.id]:
+                                                                        event
+                                                                            .target
+                                                                            .value,
+                                                                }),
+                                                            )
+                                                        }
+                                                        placeholder='Write a comment'
+                                                        className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
+                                                    />
                                                     <button
                                                         type='button'
-                                                        onClick={() => clearReplyTarget(post.id)}
-                                                        className='rounded-lg bg-cyan-100 px-2 py-1 font-semibold hover:bg-cyan-200'
+                                                        onClick={() =>
+                                                            void submitComment(
+                                                                post.id,
+                                                            )
+                                                        }
+                                                        disabled={busy}
+                                                        className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                                                     >
-                                                        Cancel
+                                                        Send
                                                     </button>
                                                 </div>
                                             ) : null}
-
-                                            <div className='flex gap-2'>
-                                                <input
-                                                    value={commentInput}
-                                                    onChange={(event) =>
-                                                        setCommentInputByPost((prev) => ({
-                                                            ...prev,
-                                                            [post.id]: event.target.value,
-                                                        }))
-                                                    }
-                                                    placeholder={replyTarget ? `Reply to ${replyTarget.authorName}` : 'Write a comment'}
-                                                    className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
-                                                />
-                                                <button
-                                                    type='button'
-                                                    onClick={() => void submitComment(post.id)}
-                                                    disabled={busy}
-                                                    className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
-                                                >
-                                                    Send
-                                                </button>
-                                            </div>
+                                            <button
+                                                type='button'
+                                                onClick={() =>
+                                                    void toggleComments(
+                                                        post.id,
+                                                    )
+                                                }
+                                                className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                            >
+                                                Hide all comments
+                                            </button>
                                         </div>
                                     ) : null}
                                 </article>
@@ -666,6 +1366,26 @@ export default function FreedomWallPage() {
                         })}
                     </section>
                 ) : null}
+                <ConfirmDialog
+                    open={Boolean(confirmDeleteTarget)}
+                    title={confirmDeleteTitle}
+                    description={confirmDeleteDescription}
+                    confirmLabel='Delete'
+                    busy={confirmDeleteBusy}
+                    onCancel={() => {
+                        if (confirmDeleteBusy) return;
+                        setConfirmDeleteTarget(null);
+                    }}
+                    onConfirm={() => {
+                        void onConfirmDelete();
+                    }}
+                />
+                <StatusPopper
+                    open={Boolean(reportPopper)}
+                    message={reportPopper?.message ?? ''}
+                    tone={reportPopper?.tone ?? 'info'}
+                    onClose={() => setReportPopper(null)}
+                />
             </AppShell>
         </AuthGuard>
     );

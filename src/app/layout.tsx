@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { DM_Sans, Space_Grotesk } from 'next/font/google';
-import { OfflineSync } from '@/components/system/offline-sync';
 import './globals.css';
 
 const bodyFont = DM_Sans({
@@ -14,8 +13,8 @@ const headingFont = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-    title: 'Campus Gallery',
-    description: 'A camera-first real-time campus social platform.',
+    title: 'Ripple',
+    description: 'A camera-first real-time social platform.',
 };
 
 export default function RootLayout({
@@ -29,7 +28,6 @@ export default function RootLayout({
                 suppressHydrationWarning
                 className={`${bodyFont.variable} ${headingFont.variable} min-h-screen bg-slate-100 text-slate-900 antialiased transition-colors`}
             >
-                <OfflineSync />
                 {children}
             </body>
         </html>

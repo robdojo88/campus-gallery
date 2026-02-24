@@ -98,6 +98,14 @@ function getNotificationHref(item: AppNotification): string | undefined {
         }
     }
 
+    if (item.type === 'report_created') {
+        const reportId = getDataString(item.data, 'reportId');
+        if (reportId) {
+            return `/admin/reports?report=${encodeURIComponent(reportId)}`;
+        }
+        return '/admin/reports';
+    }
+
     return undefined;
 }
 
@@ -566,7 +574,7 @@ export default function NotificationsPage() {
                 {/* <PageHeader
                     eyebrow='Account'
                     title='Notifications'
-                    description='Realtime alerts for likes, comments, new events, and key activity across Campus Gallery.'
+                    description='Realtime alerts for likes, comments, new events, and key activity across Ripple.'
                     action={
                         <button
                             type='button'
