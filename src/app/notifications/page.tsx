@@ -43,19 +43,52 @@ function getDataString(
 }
 
 function getNotificationHref(item: AppNotification): string | undefined {
-    if (item.type === 'feed_like' || item.type === 'feed_comment') {
+    if (item.type === 'feed_like') {
         const postId = getDataString(item.data, 'postId');
         if (postId) return `/feed?post=${encodeURIComponent(postId)}`;
     }
 
-    if (item.type === 'freedom_like' || item.type === 'freedom_comment') {
+    if (item.type === 'feed_comment') {
+        const postId = getDataString(item.data, 'postId');
+        const commentId = getDataString(item.data, 'commentId');
+        if (postId && commentId) {
+            return `/feed?post=${encodeURIComponent(postId)}&comment=${encodeURIComponent(commentId)}`;
+        }
+        if (postId) {
+            return `/feed?post=${encodeURIComponent(postId)}`;
+        }
+    }
+
+    if (item.type === 'freedom_like') {
         const postId = getDataString(item.data, 'freedomPostId');
         if (postId) return `/freedom-wall?post=${encodeURIComponent(postId)}`;
     }
 
-    if (item.type === 'incognito_like' || item.type === 'incognito_comment') {
+    if (item.type === 'freedom_comment') {
+        const postId = getDataString(item.data, 'freedomPostId');
+        const commentId = getDataString(item.data, 'commentId');
+        if (postId && commentId) {
+            return `/freedom-wall?post=${encodeURIComponent(postId)}&comment=${encodeURIComponent(commentId)}`;
+        }
+        if (postId) {
+            return `/freedom-wall?post=${encodeURIComponent(postId)}`;
+        }
+    }
+
+    if (item.type === 'incognito_like') {
         const postId = getDataString(item.data, 'incognitoPostId');
         if (postId) return `/incognito?post=${encodeURIComponent(postId)}`;
+    }
+
+    if (item.type === 'incognito_comment') {
+        const postId = getDataString(item.data, 'incognitoPostId');
+        const commentId = getDataString(item.data, 'commentId');
+        if (postId && commentId) {
+            return `/incognito?post=${encodeURIComponent(postId)}&comment=${encodeURIComponent(commentId)}`;
+        }
+        if (postId) {
+            return `/incognito?post=${encodeURIComponent(postId)}`;
+        }
     }
 
     if (item.type === 'event_created') {
@@ -311,6 +344,7 @@ export default function NotificationsPage() {
                 group.createdAtMs = createdAtMs;
                 group.title = item.title;
                 group.body = item.body;
+                group.href = getNotificationHref(item) ?? group.href;
             }
         }
 

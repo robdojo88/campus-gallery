@@ -24,6 +24,43 @@ import type { Post, PostComment } from '@/lib/types';
 const FALLBACK_AVATAR_URL = '/avatar-default.svg';
 const COMMENTS_INITIAL_LIMIT = 10;
 const COMMENTS_PAGE_SIZE = 5;
+const FEED_COMMENT_MAX_DEPTH = 2;
+
+type ReplyTarget = {
+    commentId: string;
+    parentId: string;
+    authorName: string;
+};
+
+type CommentNode = PostComment & { replies: CommentNode[] };
+
+function safeTimeValue(timestamp: string): number {
+    const value = new Date(timestamp).getTime();
+    return Number.isNaN(value) ? 0 : value;
+}
+
+function buildCommentTree(comments: PostComment[]): CommentNode[] {
+    const sorted = [...comments].sort(
+        (a, b) => safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt),
+    );
+    const byId = new Map<string, CommentNode>();
+    for (const comment of sorted) {
+        byId.set(comment.id, { ...comment, replies: [] });
+    }
+
+    const roots: CommentNode[] = [];
+    for (const comment of sorted) {
+        const node = byId.get(comment.id);
+        if (!node) continue;
+        const parent = comment.parentId ? byId.get(comment.parentId) : undefined;
+        if (parent) {
+            parent.replies.push(node);
+        } else {
+            roots.push(node);
+        }
+    }
+    return roots;
+}
 
 function formatFeedTimestamp(createdAt: string): string {
     const date = new Date(createdAt);
@@ -411,7 +448,13 @@ function Lightbox({
     );
 }
 
-export function PostCard({ post }: { post: Post }) {
+export function PostCard({
+    post,
+    targetCommentId = '',
+}: {
+    post: Post;
+    targetCommentId?: string;
+}) {
     const author = post.author;
     const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
     const postedAt = formatFeedTimestamp(post.createdAt);
@@ -431,6 +474,7 @@ export function PostCard({ post }: { post: Post }) {
     const [commentsLoading, setCommentsLoading] = useState(false);
     const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
     const [busyCommentId, setBusyCommentId] = useState('');
+    const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
     const [commentsCursor, setCommentsCursor] = useState<string | undefined>(
         undefined,
     );
@@ -438,6 +482,8 @@ export function PostCard({ post }: { post: Post }) {
     const commentsContainerRef = useRef<HTMLDivElement | null>(null);
     const commentsAnchorRef = useRef<HTMLDivElement | null>(null);
     const loadedCommentsCountRef = useRef(0);
+    const commentInputRef = useRef<HTMLInputElement | null>(null);
+    const focusedCommentIdRef = useRef('');
 
     const images = useMemo(
         () => (post.images.length > 0 ? post.images : [post.imageUrl]),
@@ -451,9 +497,35 @@ export function PostCard({ post }: { post: Post }) {
         setLiked(engagement.likedByCurrentUser);
     }, [post.id]);
 
+    const commentTree = useMemo(() => buildCommentTree(comments), [comments]);
+    const commentById = useMemo(
+        () => new Map(comments.map((comment) => [comment.id, comment])),
+        [comments],
+    );
+
     useEffect(() => {
         loadedCommentsCountRef.current = comments.length;
     }, [comments]);
+
+    useEffect(() => {
+        if (!targetCommentId) {
+            focusedCommentIdRef.current = '';
+            return;
+        }
+        if (focusedCommentIdRef.current !== targetCommentId) {
+            focusedCommentIdRef.current = '';
+        }
+    }, [targetCommentId]);
+
+    useEffect(() => {
+        if (!replyTarget) return;
+        const targetStillVisible = comments.some(
+            (comment) => comment.id === replyTarget.commentId,
+        );
+        if (!targetStillVisible) {
+            setReplyTarget(null);
+        }
+    }, [comments, replyTarget]);
 
     const loadInitialComments = useCallback(async () => {
         setCommentsLoading(true);
@@ -583,6 +655,11 @@ export function PostCard({ post }: { post: Post }) {
     }, [loadInitialComments, showComments]);
 
     useEffect(() => {
+        if (!targetCommentId || showComments) return;
+        setShowComments(true);
+    }, [showComments, targetCommentId]);
+
+    useEffect(() => {
         if (
             !showComments ||
             !commentsHasMore ||
@@ -606,6 +683,39 @@ export function PostCard({ post }: { post: Post }) {
             observer.disconnect();
         };
     }, [commentsHasMore, loadMoreComments, showComments]);
+
+    useEffect(() => {
+        if (!showComments || !targetCommentId || !commentsContainerRef.current) {
+            return;
+        }
+        if (focusedCommentIdRef.current === targetCommentId) {
+            return;
+        }
+
+        const targetNode = commentsContainerRef.current.querySelector<HTMLElement>(
+            `[data-feed-comment-id="${targetCommentId}"]`,
+        );
+        if (targetNode) {
+            targetNode.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            });
+            focusedCommentIdRef.current = targetCommentId;
+            return;
+        }
+
+        if (commentsHasMore && !commentsLoadingMore && !commentsLoading) {
+            void loadMoreComments();
+        }
+    }, [
+        comments,
+        commentsHasMore,
+        commentsLoading,
+        commentsLoadingMore,
+        loadMoreComments,
+        showComments,
+        targetCommentId,
+    ]);
 
     async function onToggleLike() {
         if (!canInteract) {
@@ -631,8 +741,21 @@ export function PostCard({ post }: { post: Post }) {
             return;
         }
         try {
-            await addPostComment(post.id, commentInput);
+            const mentionPrefix = replyTarget ? `@${replyTarget.authorName} ` : '';
+            let payload = commentInput.trim();
+            if (!payload) {
+                throw new Error('Comment cannot be empty.');
+            }
+            if (
+                mentionPrefix &&
+                !payload.toLowerCase().startsWith(mentionPrefix.trim().toLowerCase())
+            ) {
+                payload = `${mentionPrefix}${payload}`;
+            }
+
+            await addPostComment(post.id, payload, replyTarget?.parentId);
             setCommentInput('');
+            setReplyTarget(null);
             await refreshEngagement();
             setShowComments(true);
             await loadInitialComments();
@@ -667,6 +790,146 @@ export function PostCard({ post }: { post: Post }) {
         } finally {
             setBusyCommentId('');
         }
+    }
+
+    function onReplyToComment(comment: PostComment) {
+        const mentionPrefix = `@${comment.authorName} `;
+
+        setReplyTarget({
+            commentId: comment.id,
+            parentId: comment.id,
+            authorName: comment.authorName,
+        });
+        setCommentInput((previousValue) => {
+            const trimmedPrevious = previousValue.trim();
+            if (!trimmedPrevious) return mentionPrefix;
+            if (
+                trimmedPrevious
+                    .toLowerCase()
+                    .startsWith(mentionPrefix.trim().toLowerCase())
+            ) {
+                return previousValue;
+            }
+            return `${mentionPrefix}${previousValue}`;
+        });
+        requestAnimationFrame(() => {
+            commentInputRef.current?.focus();
+        });
+    }
+
+    function clearReplyTarget() {
+        setReplyTarget(null);
+    }
+
+    function renderCommentContent(comment: PostComment): React.ReactNode {
+        if (!comment.parentId) {
+            return comment.content;
+        }
+
+        const parent = commentById.get(comment.parentId);
+        if (!parent) {
+            return comment.content;
+        }
+
+        const mention = `@${parent.authorName}`;
+        const mentionWithSpace = `${mention} `;
+        if (comment.content.startsWith(mentionWithSpace)) {
+            const rest = comment.content.slice(mentionWithSpace.length);
+            return (
+                <>
+                    <span className='font-bold text-[#155DFC]'>
+                        {mention}
+                    </span>
+                    {rest ? ` ${rest}` : ''}
+                </>
+            );
+        }
+
+        if (comment.content === mention) {
+            return (
+                <span className='font-bold text-[#155DFC]'>{mention}</span>
+            );
+        }
+
+        return comment.content;
+    }
+
+    function renderCommentNodes(
+        nodes: CommentNode[],
+        depth = 0,
+    ): React.ReactNode {
+        return nodes.map((node) => {
+            const isTarget = Boolean(targetCommentId) && node.id === targetCommentId;
+            return (
+                <div
+                    key={node.id}
+                    data-feed-comment-id={node.id}
+                    className={`rounded-xl bg-white px-2 py-2 text-xs ${
+                        depth > 0 ? 'border border-slate-200/80' : ''
+                    } ${
+                        isTarget ? 'ring-2 ring-[#155DFC]/70 ring-offset-1' : ''
+                    }`}
+                >
+                    <div className='flex items-start gap-2'>
+                        <span className='relative mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                            <Image
+                                src={node.authorAvatarUrl ?? FALLBACK_AVATAR_URL}
+                                alt={`${node.authorName} avatar`}
+                                fill
+                                sizes='28px'
+                                className='object-cover'
+                            />
+                        </span>
+                        <div className='min-w-0 flex-1'>
+                            <div className='rounded-2xl bg-slate-100 px-3 py-2'>
+                                <p className='font-semibold text-slate-700'>
+                                    {node.authorName}
+                                </p>
+                                <p className='mt-1 text-slate-700'>
+                                    {renderCommentContent(node)}
+                                </p>
+                            </div>
+                            <div className='mt-2 flex items-center gap-2 pl-1'>
+                                <button
+                                    type='button'
+                                    onClick={() => void onToggleCommentLike(node.id)}
+                                    disabled={busyCommentId === node.id}
+                                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                                        node.likedByCurrentUser
+                                            ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                    } disabled:cursor-not-allowed disabled:opacity-60`}
+                                    aria-label='React to comment'
+                                >
+                                    <HeartIcon
+                                        filled={node.likedByCurrentUser}
+                                        className={`h-3.5 w-3.5 ${node.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
+                                    />
+                                    <span>{node.likes}</span>
+                                </button>
+                                {depth < FEED_COMMENT_MAX_DEPTH ? (
+                                    <button
+                                        type='button'
+                                        onClick={() => onReplyToComment(node)}
+                                        className='rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50'
+                                    >
+                                        Reply
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+                    </div>
+                    {node.replies.length > 0 ? (
+                        <div className='mt-2 space-y-2 border-l border-slate-200 pl-3'>
+                            {renderCommentNodes(
+                                node.replies,
+                                Math.min(depth + 1, FEED_COMMENT_MAX_DEPTH),
+                            )}
+                        </div>
+                    ) : null}
+                </div>
+            );
+        });
     }
 
     function openLightbox(index: number) {
@@ -746,7 +1009,15 @@ export function PostCard({ post }: { post: Post }) {
                     </button>
                     <button
                         type='button'
-                        onClick={() => setShowComments((prev) => !prev)}
+                        onClick={() =>
+                            setShowComments((prev) => {
+                                const next = !prev;
+                                if (!next) {
+                                    setReplyTarget(null);
+                                }
+                                return next;
+                            })
+                        }
                         className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
                             showComments
                                 ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
@@ -759,6 +1030,18 @@ export function PostCard({ post }: { post: Post }) {
                         <span>Comment</span>
                     </button>
                 </div>
+                {replyTarget ? (
+                    <div className='flex items-center justify-between rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800'>
+                        <span>Replying to {replyTarget.authorName}</span>
+                        <button
+                            type='button'
+                            onClick={clearReplyTarget}
+                            className='rounded-md bg-cyan-100 px-2 py-1 font-semibold hover:bg-cyan-200'
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                ) : null}
                 <form
                     className='flex gap-2'
                     onSubmit={(event) => {
@@ -767,6 +1050,7 @@ export function PostCard({ post }: { post: Post }) {
                     }}
                 >
                     <input
+                        ref={commentInputRef}
                         value={commentInput}
                         onChange={(event) =>
                             setCommentInput(event.target.value)
@@ -777,7 +1061,11 @@ export function PostCard({ post }: { post: Post }) {
                             event.preventDefault();
                             void onAddComment();
                         }}
-                        placeholder='Write a comment'
+                        placeholder={
+                            replyTarget
+                                ? `Reply to ${replyTarget.authorName}`
+                                : 'Write a comment'
+                        }
                         className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
                     />
                     <button
@@ -803,38 +1091,9 @@ export function PostCard({ post }: { post: Post }) {
                                 No comments yet.
                             </p>
                         ) : (
-                            comments.map((comment) => (
-                                <div
-                                    key={comment.id}
-                                    className='rounded-xl bg-white px-3 py-2 text-xs'
-                                >
-                                    <p className='font-semibold text-slate-700'>
-                                        {comment.authorName}
-                                    </p>
-                                    <p className='mt-1 text-slate-700'>
-                                        {comment.content}
-                                    </p>
-                                    <button
-                                        type='button'
-                                        onClick={() =>
-                                            void onToggleCommentLike(comment.id)
-                                        }
-                                        disabled={busyCommentId === comment.id}
-                                        className={`mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
-                                            comment.likedByCurrentUser
-                                                ? 'border-rose-200 bg-rose-50 text-rose-600'
-                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                        } disabled:cursor-not-allowed disabled:opacity-60`}
-                                        aria-label='React to comment'
-                                    >
-                                        <HeartIcon
-                                            filled={comment.likedByCurrentUser}
-                                            className={`h-3.5 w-3.5 ${comment.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
-                                        />
-                                        <span>{comment.likes}</span>
-                                    </button>
-                                </div>
-                            ))
+                            <div className='space-y-2'>
+                                {renderCommentNodes(commentTree)}
+                            </div>
                         )}
                         {commentsHasMore ? (
                             <div

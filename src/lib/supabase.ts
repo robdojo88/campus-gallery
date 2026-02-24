@@ -61,6 +61,7 @@ type DbCommentRow = {
     id: string;
     post_id: string;
     user_id: string;
+    parent_id: string | null;
     content: string;
     created_at: string;
 };
@@ -510,6 +511,15 @@ function isMissingIncognitoEngagementTablesError(error: unknown): boolean {
 
 function isMissingFeedCommentLikesTableError(error: unknown): boolean {
     return isMissingTableError(error, 'comment_likes');
+}
+
+function isMissingFeedCommentReplySchemaError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? ((error as { message: string }).message || '').toLowerCase()
+            : '';
+    return message.includes('parent_id') && message.includes('comments');
 }
 
 function isMissingFreedomCommentLikesTableError(error: unknown): boolean {
@@ -1526,6 +1536,9 @@ export async function fetchFreedomPostComments(postId: string): Promise<FreedomW
     const { data: users, error: usersError } = await supabase.from('users').select('*').in('id', userIds).returns<DbUser[]>();
     if (usersError) throw toAppError(usersError);
     const names = new Map((users ?? []).map((user) => [user.id, user.name]));
+    const avatarUrls = new Map(
+        (users ?? []).map((user) => [user.id, resolveAvatarUrl(user.avatar_url)]),
+    );
 
     let likeRows: DbFreedomCommentLikeRow[] = [];
     if (commentIds.length > 0) {
@@ -1559,6 +1572,7 @@ export async function fetchFreedomPostComments(postId: string): Promise<FreedomW
         likedByCurrentUser: likedCommentIds.has(row.id),
         createdAt: row.created_at,
         authorName: names.get(row.user_id) ?? 'User',
+        authorAvatarUrl: avatarUrls.get(row.user_id) ?? DEFAULT_AVATAR_URL,
     }));
 }
 
@@ -1574,13 +1588,50 @@ export async function addFreedomPostComment(input: {
     const cleaned = input.content.trim();
     if (!cleaned) throw new Error('Comment cannot be empty.');
 
+    let targetParentId: string | null = null;
+    if (input.parentId) {
+        const { data: parent, error: parentError } = await supabase
+            .from('freedom_wall_comments')
+            .select('id,post_id,parent_id')
+            .eq('id', input.parentId)
+            .maybeSingle<{ id: string; post_id: string; parent_id: string | null }>();
+        if (parentError) throw toAppError(parentError);
+        if (!parent || parent.post_id !== input.postId) {
+            throw new Error('Reply target no longer exists.');
+        }
+
+        if (parent.parent_id) {
+            const { data: parentOfParent, error: parentOfParentError } = await supabase
+                .from('freedom_wall_comments')
+                .select('parent_id')
+                .eq('id', parent.parent_id)
+                .maybeSingle<{ parent_id: string | null }>();
+            if (parentOfParentError) throw toAppError(parentOfParentError);
+
+            if (parentOfParent?.parent_id) {
+                throw new Error('Replies are limited to second-level threads.');
+            }
+        }
+
+        targetParentId = parent.id;
+    }
+
     const { error } = await supabase.from('freedom_wall_comments').insert({
         post_id: input.postId,
         user_id: user.id,
-        parent_id: input.parentId ?? null,
+        parent_id: targetParentId,
         content: cleaned,
     });
     if (error) {
+        if (
+            typeof error === 'object' &&
+            error &&
+            'message' in error &&
+            typeof (error as { message?: unknown }).message === 'string' &&
+            (error as { message: string }).message.toLowerCase().includes('second-level')
+        ) {
+            throw new Error('Replies are limited to second-level threads.');
+        }
         if (isMissingFreedomEngagementTablesError(error)) {
             throw new Error(
                 "Database migration required: missing 'freedom_wall_comments' table. Run the latest SQL migration and retry.",
@@ -2410,7 +2461,7 @@ export async function fetchPostCommentsPage(
     const safeLimit = Math.max(1, Math.min(input.limit ?? 10, 100));
     let query = supabase
         .from('comments')
-        .select('id,post_id,user_id,content,created_at')
+        .select('id,post_id,user_id,parent_id,content,created_at')
         .eq('post_id', postId)
         .order('created_at', { ascending: false })
         .limit(safeLimit + 1);
@@ -2420,7 +2471,14 @@ export async function fetchPostCommentsPage(
     }
 
     const { data: rows, error } = await query.returns<DbCommentRow[]>();
-    if (error) throw toAppError(error);
+    if (error) {
+        if (isMissingFeedCommentReplySchemaError(error)) {
+            throw new Error(
+                "Database migration required: missing feed comment reply schema. Run 'supabase/feed-comment-replies.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
     if (!rows || rows.length === 0) {
         return {
             items: [],
@@ -2435,6 +2493,9 @@ export async function fetchPostCommentsPage(
     const { data: users, error: usersError } = await supabase.from('users').select('*').in('id', userIds).returns<DbUser[]>();
     if (usersError) throw toAppError(usersError);
     const names = new Map((users ?? []).map((user) => [user.id, user.name]));
+    const avatarUrls = new Map(
+        (users ?? []).map((user) => [user.id, resolveAvatarUrl(user.avatar_url)]),
+    );
 
     const commentIds = pageRows.map((row) => row.id);
     let likeRows: DbCommentLikeRow[] = [];
@@ -2462,11 +2523,13 @@ export async function fetchPostCommentsPage(
         id: row.id,
         postId: row.post_id,
         userId: row.user_id,
+        parentId: row.parent_id ?? undefined,
         content: row.content,
         likes: likeCounts[row.id] ?? 0,
         likedByCurrentUser: likedCommentIds.has(row.id),
         createdAt: row.created_at,
         authorName: names.get(row.user_id) ?? 'User',
+        authorAvatarUrl: avatarUrls.get(row.user_id) ?? DEFAULT_AVATAR_URL,
     }));
     const nextCursor = pageRows[pageRows.length - 1]?.created_at;
 
@@ -2477,19 +2540,69 @@ export async function fetchPostCommentsPage(
     };
 }
 
-export async function addPostComment(postId: string, content: string): Promise<void> {
+export async function addPostComment(postId: string, content: string, parentId?: string): Promise<void> {
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in.');
     const cleaned = content.trim();
     if (!cleaned) throw new Error('Comment cannot be empty.');
 
+    let targetParentId: string | null = null;
+    if (parentId) {
+        const { data: parent, error: parentError } = await supabase
+            .from('comments')
+            .select('id,post_id,parent_id')
+            .eq('id', parentId)
+            .maybeSingle<{ id: string; post_id: string; parent_id: string | null }>();
+        if (parentError) {
+            if (isMissingFeedCommentReplySchemaError(parentError)) {
+                throw new Error(
+                    "Database migration required: missing feed comment reply schema. Run 'supabase/feed-comment-replies.sql' and retry.",
+                );
+            }
+            throw toAppError(parentError);
+        }
+        if (!parent || parent.post_id !== postId) {
+            throw new Error('Reply target no longer exists.');
+        }
+
+        if (parent.parent_id) {
+            const { data: parentOfParent, error: parentOfParentError } = await supabase
+                .from('comments')
+                .select('parent_id')
+                .eq('id', parent.parent_id)
+                .maybeSingle<{ parent_id: string | null }>();
+            if (parentOfParentError) {
+                if (isMissingFeedCommentReplySchemaError(parentOfParentError)) {
+                    throw new Error(
+                        "Database migration required: missing feed comment reply schema. Run 'supabase/feed-comment-replies.sql' and retry.",
+                    );
+                }
+                throw toAppError(parentOfParentError);
+            }
+
+            if (parentOfParent?.parent_id) {
+                throw new Error('Replies are limited to second-level threads.');
+            }
+        }
+
+        targetParentId = parent.id;
+    }
+
     const { error } = await supabase.from('comments').insert({
         post_id: postId,
         user_id: user.id,
+        parent_id: targetParentId,
         content: cleaned,
     });
-    if (error) throw toAppError(error);
+    if (error) {
+        if (isMissingFeedCommentReplySchemaError(error)) {
+            throw new Error(
+                "Database migration required: missing feed comment reply schema. Run 'supabase/feed-comment-replies.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
 }
 
 export function subscribeToPostEngagement(postId: string, onChange: () => void): () => void {

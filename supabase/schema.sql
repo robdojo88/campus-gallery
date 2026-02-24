@@ -74,9 +74,79 @@ create table if not exists public.comments (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
   user_id uuid not null references public.users(id) on delete cascade,
+  parent_id uuid references public.comments(id) on delete cascade,
   content text not null,
   created_at timestamptz not null default now()
 );
+
+create unique index if not exists comments_id_post_id_key
+on public.comments (id, post_id);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'comments_parent_same_post_fk'
+      and conrelid = 'public.comments'::regclass
+  ) then
+    alter table public.comments
+      add constraint comments_parent_same_post_fk
+      foreign key (parent_id, post_id)
+      references public.comments (id, post_id)
+      on delete cascade;
+  end if;
+end
+$$;
+
+create or replace function public.enforce_freedom_comment_reply_depth()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  parent_post_id uuid;
+  parent_parent_id uuid;
+  grand_parent_parent_id uuid;
+begin
+  if new.parent_id is null then
+    return new;
+  end if;
+
+  select c.post_id, c.parent_id
+  into parent_post_id, parent_parent_id
+  from public.freedom_wall_comments c
+  where c.id = new.parent_id;
+
+  if parent_post_id is null then
+    raise exception 'Parent comment does not exist.';
+  end if;
+
+  if parent_post_id <> new.post_id then
+    raise exception 'Reply must belong to the same post.';
+  end if;
+
+  if parent_parent_id is null then
+    return new;
+  end if;
+
+  select c.parent_id
+  into grand_parent_parent_id
+  from public.freedom_wall_comments c
+  where c.id = parent_parent_id;
+
+  if grand_parent_parent_id is not null then
+    raise exception 'Replies are limited to second-level threads.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_freedom_comments_enforce_reply_depth on public.freedom_wall_comments;
+create trigger on_freedom_comments_enforce_reply_depth
+before insert or update of parent_id on public.freedom_wall_comments
+for each row execute procedure public.enforce_freedom_comment_reply_depth();
 
 create table if not exists public.comment_likes (
   id uuid primary key default gen_random_uuid(),
@@ -85,6 +155,55 @@ create table if not exists public.comment_likes (
   created_at timestamptz not null default now(),
   unique(comment_id, user_id)
 );
+
+create or replace function public.enforce_comment_reply_depth()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  parent_post_id uuid;
+  parent_parent_id uuid;
+  grand_parent_parent_id uuid;
+begin
+  if new.parent_id is null then
+    return new;
+  end if;
+
+  select c.post_id, c.parent_id
+  into parent_post_id, parent_parent_id
+  from public.comments c
+  where c.id = new.parent_id;
+
+  if parent_post_id is null then
+    raise exception 'Parent comment does not exist.';
+  end if;
+
+  if parent_post_id <> new.post_id then
+    raise exception 'Reply must belong to the same post.';
+  end if;
+
+  if parent_parent_id is null then
+    return new;
+  end if;
+
+  select c.parent_id
+  into grand_parent_parent_id
+  from public.comments c
+  where c.id = parent_parent_id;
+
+  if grand_parent_parent_id is not null then
+    raise exception 'Replies are limited to second-level threads.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_comments_enforce_reply_depth on public.comments;
+create trigger on_comments_enforce_reply_depth
+before insert or update of parent_id on public.comments
+for each row execute procedure public.enforce_comment_reply_depth();
 
 create table if not exists public.freedom_wall_posts (
   id uuid primary key default gen_random_uuid(),
@@ -395,13 +514,20 @@ security definer
 set search_path = public
 as $$
 declare
-  target_user_id uuid;
+  target_post_owner_id uuid;
+  target_reply_user_id uuid;
   actor_name text;
   snippet text;
 begin
-  select p.user_id into target_user_id
+  select p.user_id into target_post_owner_id
   from public.posts p
   where p.id = new.post_id;
+
+  if new.parent_id is not null then
+    select c.user_id into target_reply_user_id
+    from public.comments c
+    where c.id = new.parent_id;
+  end if;
 
   select u.name into actor_name
   from public.users u
@@ -410,13 +536,31 @@ begin
   snippet := left(regexp_replace(coalesce(new.content, ''), '\s+', ' ', 'g'), 120);
 
   perform public.insert_notification(
-    target_user_id,
+    target_post_owner_id,
     new.user_id,
     'feed_comment',
     'New comment on your feed post',
     coalesce(actor_name, 'Someone') || ' commented: "' || snippet || '".',
     jsonb_build_object('postId', new.post_id, 'commentId', new.id)
   );
+
+  if new.parent_id is not null
+     and target_reply_user_id is not null
+     and target_reply_user_id <> target_post_owner_id then
+    perform public.insert_notification(
+      target_reply_user_id,
+      new.user_id,
+      'feed_comment',
+      'You were mentioned in a feed comment',
+      coalesce(actor_name, 'Someone') || ' mentioned you: "' || snippet || '".',
+      jsonb_build_object(
+        'postId', new.post_id,
+        'commentId', new.id,
+        'parentCommentId', new.parent_id,
+        'mentioned', true
+      )
+    );
+  end if;
 
   return new;
 end;

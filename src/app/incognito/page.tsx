@@ -91,6 +91,7 @@ function formatIncognitoTimestamp(createdAt: string): string {
 
 export default function IncognitoPage() {
     const [targetPostId, setTargetPostId] = useState('');
+    const [targetCommentId, setTargetCommentId] = useState('');
     const [content, setContent] = useState('');
     const [items, setItems] = useState<
         Array<{
@@ -118,6 +119,7 @@ export default function IncognitoPage() {
     const [profileLoading, setProfileLoading] = useState(true);
     const openCommentsRef = useRef<Record<string, boolean>>({});
     const focusedPostIdRef = useRef('');
+    const focusedCommentIdRef = useRef('');
     const aliasRequired = viewerRole === 'member' && !incognitoAlias;
 
     useEffect(() => {
@@ -128,6 +130,7 @@ export default function IncognitoPage() {
         const readTargetPost = () => {
             const params = new URLSearchParams(window.location.search);
             setTargetPostId((params.get('post') ?? '').trim());
+            setTargetCommentId((params.get('comment') ?? '').trim());
         };
 
         readTargetPost();
@@ -216,6 +219,47 @@ export default function IncognitoPage() {
         });
         focusedPostIdRef.current = targetPostId;
     }, [items, targetPostId]);
+
+    useEffect(() => {
+        if (!targetCommentId) {
+            focusedCommentIdRef.current = '';
+            return;
+        }
+        if (focusedCommentIdRef.current !== targetCommentId) {
+            focusedCommentIdRef.current = '';
+        }
+    }, [targetCommentId]);
+
+    useEffect(() => {
+        if (!targetPostId || !targetCommentId) return;
+        if (focusedCommentIdRef.current === targetCommentId) return;
+
+        const commentsOpen = Boolean(openCommentsByPost[targetPostId]);
+        if (!commentsOpen) {
+            setOpenCommentsByPost((prev) => ({ ...prev, [targetPostId]: true }));
+            void loadComments(targetPostId);
+            return;
+        }
+
+        const targetNode = document.querySelector<HTMLElement>(
+            `[data-incognito-comment-id="${targetCommentId}"]`,
+        );
+        if (targetNode) {
+            targetNode.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            });
+            focusedCommentIdRef.current = targetCommentId;
+            return;
+        }
+
+        if (targetPostId in commentsByPost) {
+            focusedCommentIdRef.current = targetCommentId;
+            return;
+        }
+
+        void loadComments(targetPostId);
+    }, [commentsByPost, openCommentsByPost, targetCommentId, targetPostId]);
 
     async function submit() {
         if (posting) return;
@@ -432,7 +476,15 @@ export default function IncognitoPage() {
                                     ) : (
                                         <div className='space-y-2'>
                                             {(commentsByPost[post.id] ?? []).map((comment) => (
-                                                <div key={comment.id} className='rounded-xl bg-slate-50 px-3 py-2 text-xs'>
+                                                <div
+                                                    key={comment.id}
+                                                    data-incognito-comment-id={comment.id}
+                                                    className={`rounded-xl bg-slate-50 px-3 py-2 text-xs ${
+                                                        targetCommentId && comment.id === targetCommentId
+                                                            ? 'ring-2 ring-[#155DFC]/70 ring-offset-1'
+                                                            : ''
+                                                    }`}
+                                                >
                                                     <p className='font-semibold text-slate-700'>{comment.authorName}</p>
                                                     <p className='mt-1 text-slate-700'>{comment.content}</p>
                                                     <button

@@ -14,6 +14,7 @@ const PAGE_SIZE = 5;
 
 export default function FeedPage() {
     const [targetPostId, setTargetPostId] = useState('');
+    const [targetCommentId, setTargetCommentId] = useState('');
     const [campusPosts, setCampusPosts] = useState<Post[]>([]);
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
@@ -32,6 +33,7 @@ export default function FeedPage() {
         const readTargetPost = () => {
             const params = new URLSearchParams(window.location.search);
             setTargetPostId((params.get('post') ?? '').trim());
+            setTargetCommentId((params.get('comment') ?? '').trim());
         };
 
         readTargetPost();
@@ -198,7 +200,14 @@ export default function FeedPage() {
                                 id={`post-${post.id}`}
                                 data-post-id={post.id}
                             >
-                                <PostCard post={post} />
+                                <PostCard
+                                    post={post}
+                                    targetCommentId={
+                                        targetPostId === post.id
+                                            ? targetCommentId
+                                            : ''
+                                    }
+                                />
                             </div>
                         ))}
                     </div>

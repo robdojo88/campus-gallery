@@ -55,6 +55,7 @@ export interface FreedomWallComment {
     likedByCurrentUser: boolean;
     createdAt: string;
     authorName: string;
+    authorAvatarUrl?: string;
 }
 
 export interface IncognitoPost {
@@ -89,11 +90,13 @@ export interface PostComment {
     id: string;
     postId: string;
     userId: string;
+    parentId?: string;
     content: string;
     likes: number;
     likedByCurrentUser: boolean;
     createdAt: string;
     authorName: string;
+    authorAvatarUrl?: string;
 }
 
 export type NotificationType =
