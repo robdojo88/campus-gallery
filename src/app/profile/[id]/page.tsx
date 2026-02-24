@@ -46,6 +46,7 @@ export default function ProfilePage() {
 
     const isOwnProfile = Boolean(viewerId && user && viewerId === user.id);
     const canSetAlias = Boolean(isOwnProfile && user?.role === 'member' && !user?.incognitoAlias);
+    const showSuspendedNotice = user?.isSuspended === true;
 
     async function onSetAlias() {
         if (!canSetAlias) return;
@@ -99,7 +100,7 @@ export default function ProfilePage() {
     }, [avatarViewerOpen]);
 
     return (
-        <AuthGuard roles={['admin', 'member']}>
+        <AuthGuard roles={['admin', 'member', 'visitor']}>
             <AppShell>
                 <PageHeader
                     eyebrow='Profile'
@@ -107,6 +108,11 @@ export default function ProfilePage() {
                     description='Public profile with uploads, likes received, role, and account details.'
                 />
                 {status ? <p className='mb-4 text-sm text-slate-600'>{status}</p> : null}
+                {showSuspendedNotice ? (
+                    <p className='mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700'>
+                        Your account is suspended. Contact your admin.
+                    </p>
+                ) : null}
                 {user ? (
                     <section className='mb-6 grid gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-[0.8fr_1.2fr]'>
                         <div className='flex flex-col gap-3'>

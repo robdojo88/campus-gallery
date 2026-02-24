@@ -60,6 +60,17 @@ export function AuthGuard({
                 }
 
                 const effectiveRole = profile?.role ?? roleFromMetadata(user.user_metadata?.role);
+                const suspended = profile?.isSuspended === true;
+                const ownProfilePath = `/profile/${user.id}`;
+
+                if (suspended) {
+                    if (pathname !== ownProfilePath) {
+                        router.replace(ownProfilePath);
+                    } else if (mounted) {
+                        setAllowed(true);
+                    }
+                    return;
+                }
 
                 if (normalizedRoles.length === 0) {
                     if (mounted) setAllowed(true);

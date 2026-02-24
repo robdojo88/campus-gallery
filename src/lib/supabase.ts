@@ -31,6 +31,7 @@ type DbUser = {
     name: string;
     email: string;
     usn: string | null;
+    is_suspended?: boolean | null;
     role: UserRole;
     avatar_url: string | null;
     incognito_alias: string | null;
@@ -295,6 +296,7 @@ function mapUser(dbUser: DbUser) {
         name: dbUser.name,
         email: dbUser.email,
         usn: toNonEmptyString(dbUser.usn) ?? undefined,
+        isSuspended: dbUser.is_suspended === true,
         role: dbUser.role,
         avatarUrl: resolveAvatarUrl(dbUser.avatar_url),
         incognitoAlias: parseIncognitoAlias(dbUser.incognito_alias) ?? undefined,
@@ -358,6 +360,16 @@ function normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
 }
 
+function normalizeTitleCase(value: string): string {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) return '';
+    return trimmed.replace(
+        /(^|[\s\-'])([a-z])/g,
+        (match, prefix: string, letter: string) =>
+            `${prefix}${letter.toUpperCase()}`,
+    );
+}
+
 function normalizeUsn(value: string): string {
     return value.trim().toUpperCase();
 }
@@ -394,12 +406,12 @@ function normalizeStudentRegistryPayload(input: StudentRegistryUpsertInput): {
         throw new Error('USN is required.');
     }
 
-    const firstName = input.firstName.trim();
+    const firstName = normalizeTitleCase(input.firstName);
     if (!firstName) {
         throw new Error('First name is required.');
     }
 
-    const lastName = input.lastName.trim();
+    const lastName = normalizeTitleCase(input.lastName);
     if (!lastName) {
         throw new Error('Last name is required.');
     }
@@ -413,7 +425,8 @@ function normalizeStudentRegistryPayload(input: StudentRegistryUpsertInput): {
         throw new Error('Email format is invalid.');
     }
 
-    const course = toNonEmptyString(input.course) ?? null;
+    const courseInput = toNonEmptyString(input.course);
+    const course = courseInput ? normalizeTitleCase(courseInput) : null;
     const status = normalizeStudentRegistryStatus(input.status);
     let yearLevel: number | null = null;
     if (typeof input.yearLevel === 'number') {
@@ -671,6 +684,19 @@ function isMissingTableError(error: unknown, tableName: string): boolean {
     return (
         message.includes(normalizedTable) &&
         (message.includes('does not exist') || message.includes('relation') || message.includes('schema cache'))
+    );
+}
+
+function isMissingUsersSuspensionColumnError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const message =
+        'message' in error && typeof (error as { message?: unknown }).message === 'string'
+            ? ((error as { message: string }).message || '').toLowerCase()
+            : '';
+
+    return (
+        message.includes('is_suspended') &&
+        (message.includes('does not exist') || message.includes('schema cache'))
     );
 }
 
@@ -2911,6 +2937,41 @@ export async function fetchUsers() {
     const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false }).returns<DbUser[]>();
     if (error) throw toAppError(error);
     return (data ?? []).map(mapUser);
+}
+
+export async function adminSetUserRole(input: {
+    userId: string;
+    role: UserRole;
+    isSuspended?: boolean;
+}): Promise<void> {
+    if (!UUID_PATTERN.test(input.userId)) {
+        throw new Error('Invalid user id.');
+    }
+
+    const payload: {
+        role: UserRole;
+        is_suspended?: boolean;
+    } = { role: input.role };
+    if (typeof input.isSuspended === 'boolean') {
+        payload.is_suspended = input.isSuspended;
+    }
+
+    const { supabase } = await requireAdminSession();
+    const { error } = await supabase
+        .from('users')
+        .update(payload)
+        .eq('id', input.userId);
+    if (error) {
+        if (
+            typeof input.isSuspended === 'boolean' &&
+            isMissingUsersSuspensionColumnError(error)
+        ) {
+            throw new Error(
+                "Database migration required: missing 'users.is_suspended' column. Run 'supabase/usn-role-resolution.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
 }
 
 export async function fetchStudentRegistry(): Promise<StudentRegistryEntry[]> {

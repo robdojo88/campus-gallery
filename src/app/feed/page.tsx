@@ -30,10 +30,7 @@ export default function FeedPage() {
     const postsCountRef = useRef(0);
     const focusedPostIdRef = useRef('');
 
-    const feedVisibility: Visibility =
-        viewerRole === 'admin' || viewerRole === 'member'
-            ? 'campus'
-            : 'visitor';
+    const feedVisibility: Visibility = 'campus';
 
     useEffect(() => {
         postsCountRef.current = campusPosts.length;
@@ -241,5 +238,4 @@ export default function FeedPage() {
         </AuthGuard>
     );
 }
-
 

@@ -31,9 +31,9 @@ set search_path = public
 as $$
 begin
   new.usn := upper(btrim(coalesce(new.usn, '')));
-  new.first_name := btrim(coalesce(new.first_name, ''));
-  new.last_name := btrim(coalesce(new.last_name, ''));
-  new.course := nullif(btrim(coalesce(new.course, '')), '');
+  new.first_name := initcap(lower(btrim(coalesce(new.first_name, ''))));
+  new.last_name := initcap(lower(btrim(coalesce(new.last_name, ''))));
+  new.course := nullif(initcap(lower(btrim(coalesce(new.course, '')))), '');
   new.email := lower(btrim(coalesce(new.email, '')));
   new.status := lower(coalesce(nullif(btrim(new.status), ''), 'active'));
   new.updated_at := now();
@@ -62,6 +62,16 @@ drop trigger if exists on_student_registry_normalize on public.student_registry;
 create trigger on_student_registry_normalize
 before insert or update on public.student_registry
 for each row execute procedure public.normalize_student_registry_row();
+
+update public.student_registry
+set
+  usn = upper(btrim(coalesce(usn, ''))),
+  first_name = initcap(lower(btrim(coalesce(first_name, '')))),
+  last_name = initcap(lower(btrim(coalesce(last_name, '')))),
+  course = nullif(initcap(lower(btrim(coalesce(course, '')))), ''),
+  email = lower(btrim(coalesce(email, ''))),
+  status = lower(coalesce(nullif(btrim(status), ''), 'active')),
+  updated_at = now();
 
 alter table public.student_registry enable row level security;
 

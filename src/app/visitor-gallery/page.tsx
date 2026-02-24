@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PostCard } from '@/components/feed/post-card';
 import { PageHeader } from '@/components/ui/page-header';
-import { fetchPosts } from '@/lib/supabase';
-import type { Post } from '@/lib/types';
+import { fetchPosts, getCurrentUserProfile } from '@/lib/supabase';
+import type { Post, UserRole } from '@/lib/types';
 
 export default function VisitorGalleryPage() {
     const [visitorPosts, setVisitorPosts] = useState<Post[]>([]);
     const [status, setStatus] = useState('Loading visitor gallery...');
+    const [viewerRole, setViewerRole] = useState<UserRole | null>(null);
 
     useEffect(() => {
         let mounted = true;
@@ -31,19 +33,58 @@ export default function VisitorGalleryPage() {
         };
     }, []);
 
+    useEffect(() => {
+        let mounted = true;
+        getCurrentUserProfile()
+            .then((profile) => {
+                if (!mounted) return;
+                setViewerRole(profile?.role ?? null);
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setViewerRole(null);
+            });
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    const effectiveStatus =
+        visitorPosts.length === 0 && status === ''
+            ? 'No visitor posts yet.'
+            : status;
+
     return (
-        <AppShell>
-            <PageHeader
-                eyebrow='Visitors'
-                title='Visitor Gallery'
-                description='Separate gallery for visitor captures. Members can view and engage, but uploads here are visitor-only.'
-            />
-            <section className='grid gap-4 md:grid-cols-2'>
-                {status ? <p className='md:col-span-2 text-sm text-slate-600'>{status}</p> : null}
-                {visitorPosts.map((post) => (
-                    <PostCard key={`${post.id}-${post.likes}-${post.comments}`} post={post} />
-                ))}
-            </section>
-        </AppShell>
+        <AuthGuard roles={['admin', 'member', 'visitor']}>
+            <AppShell>
+                <PageHeader
+                    eyebrow='Visitors'
+                    title='Visitor Gallery'
+                    description='Feed-style visitor timeline. Like and comment interactions are hidden on this page.'
+                />
+                {effectiveStatus ? (
+                    <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
+                        {effectiveStatus}
+                    </p>
+                ) : null}
+                <section className='mx-auto w-full max-w-3xl space-y-4'>
+                    {visitorPosts.map((post) => (
+                        <PostCard
+                            key={`${post.id}-${post.likes}-${post.comments}`}
+                            post={post}
+                            showEngagement={false}
+                            isAdminViewer={viewerRole === 'admin' ? true : null}
+                            onPostDeleted={(deletedPostId) => {
+                                setVisitorPosts((prev) =>
+                                    prev.filter(
+                                        (item) => item.id !== deletedPostId,
+                                    ),
+                                );
+                            }}
+                        />
+                    ))}
+                </section>
+            </AppShell>
+        </AuthGuard>
     );
 }

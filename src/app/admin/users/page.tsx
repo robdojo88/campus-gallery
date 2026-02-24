@@ -4,12 +4,13 @@ import { useEffect, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
-import { fetchUsers } from '@/lib/supabase';
+import { adminSetUserRole, fetchUsers } from '@/lib/supabase';
 import type { User } from '@/lib/types';
 
 export default function AdminUsersPage() {
     const [users, setUsers] = useState<User[]>([]);
     const [status, setStatus] = useState('Loading users...');
+    const [busyUserId, setBusyUserId] = useState('');
 
     useEffect(() => {
         async function load() {
@@ -24,6 +25,47 @@ export default function AdminUsersPage() {
         }
         void load();
     }, []);
+
+    async function onToggleSuspend(user: User) {
+        if (user.role === 'admin') {
+            setStatus('Admin accounts cannot be suspended.');
+            return;
+        }
+
+        const isSuspended = user.isSuspended === true;
+        const nextRole = user.role;
+        const nextSuspended = !isSuspended;
+        setBusyUserId(user.id);
+        try {
+            await adminSetUserRole({
+                userId: user.id,
+                role: nextRole,
+                isSuspended: nextSuspended,
+            });
+            setUsers((prev) =>
+                prev.map((item) =>
+                    item.id === user.id
+                        ? {
+                              ...item,
+                              role: nextRole,
+                              isSuspended: nextSuspended,
+                          }
+                        : item,
+                ),
+            );
+            setStatus(
+                nextSuspended
+                    ? `${user.name} suspended.`
+                    : `${user.name} unsuspended.`,
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : 'Action failed.';
+            setStatus(message);
+        } finally {
+            setBusyUserId('');
+        }
+    }
 
     return (
         <AuthGuard roles={['admin']}>
@@ -51,8 +93,20 @@ export default function AdminUsersPage() {
                                     <td className='px-4 py-3 capitalize'>{user.role}</td>
                                     <td className='px-4 py-3 text-slate-600'>{user.email}</td>
                                     <td className='px-4 py-3'>
-                                        <button className='rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold'>
-                                            Suspend
+                                        {user.isSuspended ? (
+                                            <span className='mr-2 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700'>
+                                                Suspended
+                                            </span>
+                                        ) : null}
+                                        <button
+                                            type='button'
+                                            onClick={() => void onToggleSuspend(user)}
+                                            disabled={busyUserId === user.id || user.role === 'admin'}
+                                            className='rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60'
+                                        >
+                                            {user.isSuspended
+                                                ? 'Unsuspend'
+                                                : 'Suspend'}
                                         </button>
                                     </td>
                                 </tr>

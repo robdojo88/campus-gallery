@@ -18,10 +18,14 @@ create table if not exists public.users (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null,
   email text not null unique,
+  is_suspended boolean not null default false,
   role public.app_role not null default 'member',
   avatar_url text not null default '/avatar-default.svg',
   created_at timestamptz not null default now()
 );
+
+alter table public.users
+add column if not exists is_suspended boolean not null default false;
 
 alter table public.users
 alter column avatar_url set default '/avatar-default.svg';
@@ -430,7 +434,7 @@ as $$
   select case
     when public.current_role() = 'admin' then true
     when public.current_role() = 'member' then true
-    when public.current_role() = 'visitor' then v = 'visitor'
+    when public.current_role() = 'visitor' then v in ('campus','visitor')
     else false
   end
 $$;
@@ -1320,3 +1324,4 @@ begin
   end if;
 end
 $$;
+

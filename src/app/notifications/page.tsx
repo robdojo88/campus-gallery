@@ -569,7 +569,7 @@ export default function NotificationsPage() {
     }
 
     return (
-        <AuthGuard>
+        <AuthGuard roles={['admin', 'member']}>
             <AppShell>
                 {/* <PageHeader
                     eyebrow='Account'
@@ -777,3 +777,4 @@ export default function NotificationsPage() {
         </AuthGuard>
     );
 }
+

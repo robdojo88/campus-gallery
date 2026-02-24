@@ -4,6 +4,9 @@
 alter table public.users
 add column if not exists usn text;
 
+alter table public.users
+add column if not exists is_suspended boolean not null default false;
+
 create unique index if not exists users_usn_unique_normalized_idx
 on public.users ((upper(btrim(usn))))
 where usn is not null and btrim(usn) <> '';
@@ -52,6 +55,7 @@ declare
   existing_role public.app_role;
   existing_usn text;
   existing_name text;
+  existing_is_suspended boolean;
   matched_first_name text;
   matched_last_name text;
   usn_owner_id uuid;
@@ -86,8 +90,8 @@ begin
   )
   on conflict (id) do nothing;
 
-  select u.role, u.usn, u.name
-  into existing_role, existing_usn, existing_name
+  select u.role, u.usn, u.name, u.is_suspended
+  into existing_role, existing_usn, existing_name, existing_is_suspended
   from public.users u
   where u.id = current_user_id
   for update;
@@ -118,6 +122,7 @@ begin
   if found then
     resolved_role := case
       when existing_role = 'admin' then 'admin'::public.app_role
+      when existing_is_suspended then existing_role
       else 'member'::public.app_role
     end;
     resolved_name := btrim(concat_ws(' ', matched_first_name, matched_last_name));
@@ -143,6 +148,7 @@ begin
 
   resolved_role := case
     when existing_role = 'admin' then 'admin'::public.app_role
+    when existing_is_suspended then existing_role
     else 'visitor'::public.app_role
   end;
 

@@ -46,6 +46,7 @@ const VISITOR_HIDDEN_LINKS = new Set([
     '/gallery/events',
     '/freedom-wall',
     '/incognito',
+    '/notifications',
 ]);
 
 function isActive(pathname: string, href: string): boolean {
@@ -240,7 +241,7 @@ function RightSidebar({ role }: { role: UserRole | null }) {
 
                 if (limitedVisitorMode) {
                     const feedPage = await fetchPostsPage({
-                        visibility: 'visitor',
+                        visibility: 'campus',
                         limit: 80,
                     });
 
@@ -549,10 +550,12 @@ function RightSidebar({ role }: { role: UserRole | null }) {
 export function AppShell({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const [role, setRole] = useState<UserRole | null>(null);
+    const [isSuspended, setIsSuspended] = useState(false);
     const isCameraRoute = pathname.startsWith('/camera');
-    const showLeftSidebar = !isCameraRoute;
+    const showLeftSidebar = !isCameraRoute && !isSuspended;
     const showRightSidebar =
         !isCameraRoute &&
+        !isSuspended &&
         !pathname.startsWith('/admin') &&
         !pathname.startsWith('/profile');
 
@@ -562,10 +565,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             .then((profile) => {
                 if (!mounted) return;
                 setRole(profile?.role ?? null);
+                setIsSuspended(profile?.isSuspended === true);
             })
             .catch(() => {
                 if (!mounted) return;
                 setRole(null);
+                setIsSuspended(false);
             });
         return () => {
             mounted = false;
@@ -584,7 +589,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return (
         <div className='min-h-screen'>
             <OfflineSync />
-            <MainNav />
+            <MainNav disableNavigation={isSuspended} />
             <div className='mx-auto w-full max-w-370 px-3 pb-10 pt-5 md:px-2 md:pt-5 lg:px-8'>
                 <div className={`grid ${gridLayoutClass}`}>
                     {showLeftSidebar ? (
@@ -597,3 +602,4 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
     );
 }
+

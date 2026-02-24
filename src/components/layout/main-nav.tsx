@@ -352,10 +352,15 @@ function NavIconLink({
     );
 }
 
-export function MainNav() {
+export function MainNav({
+    disableNavigation = false,
+}: {
+    disableNavigation?: boolean;
+}) {
     const pathname = usePathname();
     const router = useRouter();
     const [role, setRole] = useState<UserRole | null>(null);
+    const [profileSuspended, setProfileSuspended] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
     const [userAvatarUrl, setUserAvatarUrl] = useState(DEFAULT_AVATAR_URL);
     const [userDisplayName, setUserDisplayName] = useState('User');
@@ -447,6 +452,7 @@ export function MainNav() {
                 if (!user) {
                     clearAuthSnapshot();
                     setRole(null);
+                    setProfileSuspended(false);
                     setUserId(null);
                     setUserAvatarUrl(DEFAULT_AVATAR_URL);
                     setUserDisplayName('User');
@@ -459,12 +465,18 @@ export function MainNav() {
                 const metadataRole =
                     normalizeRole(user.user_metadata?.role) ?? 'visitor';
                 setRole((current) => current ?? metadataRole);
-                const [profile, unread] = await Promise.all([
-                    getCurrentUserProfile(),
-                    countUnreadNotifications(),
-                ]);
+                const profile = await getCurrentUserProfile();
                 if (!mounted) return;
                 const resolvedRole = profile?.role ?? metadataRole;
+                setProfileSuspended(profile?.isSuspended === true);
+                let unread = 0;
+                if (resolvedRole !== 'visitor') {
+                    try {
+                        unread = await countUnreadNotifications();
+                    } catch {
+                        unread = 0;
+                    }
+                }
                 setRole(resolvedRole);
                 setUserDisplayName(
                     profile?.name ?? user.email?.split('@')[0] ?? 'User',
@@ -478,6 +490,7 @@ export function MainNav() {
                 const cachedUserId = getCachedUserId();
                 if (cachedRole) setRole(cachedRole);
                 if (cachedUserId) setUserId(cachedUserId);
+                setProfileSuspended(false);
                 setUserAvatarUrl(DEFAULT_AVATAR_URL);
                 setUnreadCount(0);
             }
@@ -488,8 +501,14 @@ export function MainNav() {
         };
     }, []);
 
+    const navigationDisabled = disableNavigation || profileSuspended;
+
     useEffect(() => {
-        if (!userId) {
+        if (
+            !userId ||
+            (role !== 'admin' && role !== 'member') ||
+            navigationDisabled
+        ) {
             return;
         }
 
@@ -518,7 +537,7 @@ export function MainNav() {
             unsubscribe();
             window.clearInterval(pollingTimer);
         };
-    }, [userId]);
+    }, [navigationDisabled, role, userId]);
 
     const searchResultCount = useMemo(() => {
         return (
@@ -530,6 +549,7 @@ export function MainNav() {
     }, [searchResults]);
 
     useEffect(() => {
+        if (navigationDisabled) return;
         if (!searchOpen) return;
 
         function onPointerDown(event: PointerEvent) {
@@ -550,9 +570,10 @@ export function MainNav() {
             document.removeEventListener('pointerdown', onPointerDown);
             document.removeEventListener('keydown', onKeyDown);
         };
-    }, [searchOpen]);
+    }, [navigationDisabled, searchOpen]);
 
     useEffect(() => {
+        if (navigationDisabled) return;
         if (!mobileMenuOpen) return;
 
         function onKeyDown(event: KeyboardEvent) {
@@ -565,13 +586,10 @@ export function MainNav() {
         return () => {
             document.removeEventListener('keydown', onKeyDown);
         };
-    }, [mobileMenuOpen]);
+    }, [mobileMenuOpen, navigationDisabled]);
 
     useEffect(() => {
-        setMobileMenuOpen(false);
-    }, [pathname]);
-
-    useEffect(() => {
+        if (navigationDisabled) return;
         if (!searchOpen) return;
         const term = searchQuery.trim();
         if (term.length < 2) {
@@ -618,9 +636,12 @@ export function MainNav() {
             active = false;
             window.clearTimeout(timer);
         };
-    }, [role, searchOpen, searchQuery]);
+    }, [navigationDisabled, role, searchOpen, searchQuery]);
 
     const centerLinks = useMemo(() => {
+        if (navigationDisabled) {
+            return [];
+        }
         if (!role) {
             return links;
         }
@@ -632,7 +653,7 @@ export function MainNav() {
             );
         }
         return links;
-    }, [role]);
+    }, [navigationDisabled, role]);
 
     const mobilePrimaryLinks = useMemo(
         () => centerLinks.filter((link) => isMobilePrimaryLink(link.href)),
@@ -649,12 +670,8 @@ export function MainNav() {
             ),
         [mobileOverflowLinks, pathname],
     );
-
-    useEffect(() => {
-        if (mobileOverflowLinks.length === 0) {
-            setMobileMenuOpen(false);
-        }
-    }, [mobileOverflowLinks.length]);
+    const notificationsEnabled =
+        !navigationDisabled && (role === 'admin' || role === 'member');
 
     async function onLogout() {
         await signOutUser();
@@ -663,6 +680,7 @@ export function MainNav() {
         setUnreadCount(0);
         setUserId(null);
         setRole(null);
+        setProfileSuspended(false);
         setUserAvatarUrl(DEFAULT_AVATAR_URL);
         setUserDisplayName('User');
         router.push('/login');
@@ -686,25 +704,41 @@ export function MainNav() {
         <header className='sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur'>
             <div className='mx-auto hidden w-full max-w-[1480px] items-center gap-3 px-3 py-2 md:flex md:px-6 lg:px-8'>
                 <div className='flex min-w-0 items-center gap-3 md:w-[320px] lg:w-[360px]'>
-                    <Link
-                        href='/'
-                        className='inline-flex items-center gap-2 rounded-xl px-1 py-1 text-lg font-bold tracking-tight text-slate-900'
-                    >
-                        <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
-                            <Image
-                                src='/spiral.png'
-                                alt='Ripple'
-                                fill
-                                className='object-cover'
-                                sizes='36px'
-                            />
+                    {navigationDisabled ? (
+                        <span className='inline-flex items-center gap-2 rounded-xl px-1 py-1 text-lg font-bold tracking-tight text-slate-900'>
+                            <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
+                                <Image
+                                    src='/spiral.png'
+                                    alt='Ripple'
+                                    fill
+                                    className='object-cover'
+                                    sizes='36px'
+                                />
+                            </span>
+                            <span className='hidden sm:inline'>Ripple</span>
                         </span>
-                        <span className='hidden sm:inline'>Ripple</span>
-                    </Link>
-                    <div
-                        ref={searchWrapperRef}
-                        className='relative hidden min-w-0 flex-1 md:block'
-                    >
+                    ) : (
+                        <Link
+                            href='/'
+                            className='inline-flex items-center gap-2 rounded-xl px-1 py-1 text-lg font-bold tracking-tight text-slate-900'
+                        >
+                            <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
+                                <Image
+                                    src='/spiral.png'
+                                    alt='Ripple'
+                                    fill
+                                    className='object-cover'
+                                    sizes='36px'
+                                />
+                            </span>
+                            <span className='hidden sm:inline'>Ripple</span>
+                        </Link>
+                    )}
+                    {navigationDisabled ? null : (
+                        <div
+                            ref={searchWrapperRef}
+                            className='relative hidden min-w-0 flex-1 md:block'
+                        >
                         <form
                             onSubmit={onSubmitSearch}
                             className='flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 transition focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100'
@@ -922,7 +956,8 @@ export function MainNav() {
                                 ) : null}
                             </div>
                         ) : null}
-                    </div>
+                        </div>
+                    )}
                 </div>
 
                 <nav className='hidden flex-1 items-center justify-center gap-2 md:flex'>
@@ -940,6 +975,7 @@ export function MainNav() {
                 <div className='ml-auto flex items-center gap-2'>
                     {userId ? (
                         <>
+                            {notificationsEnabled ? (
                             <Link
                                 href='/notifications'
                                 aria-label='Notifications'
@@ -960,6 +996,7 @@ export function MainNav() {
                                     Notifications
                                 </span>
                             </Link>
+                            ) : null}
                             <div className='relative'>
                                 <button
                                     ref={profileMenuDesktopButtonRef}
@@ -1043,25 +1080,39 @@ export function MainNav() {
                         </span>
                     </button>
                 ) : null}
-                <Link
-                    href='/'
-                    aria-label='Ripple home'
-                    title='Ripple'
-                    className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
-                >
-                    <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
-                        <Image
-                            src='/spiral.png'
-                            alt='Ripple'
-                            fill
-                            className='object-cover'
-                            sizes='28px'
-                        />
+                {navigationDisabled ? (
+                    <span className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-slate-600'>
+                        <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                            <Image
+                                src='/spiral.png'
+                                alt='Ripple'
+                                fill
+                                className='object-cover'
+                                sizes='28px'
+                            />
+                        </span>
                     </span>
-                    <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
-                        Home
-                    </span>
-                </Link>
+                ) : (
+                    <Link
+                        href='/'
+                        aria-label='Ripple home'
+                        title='Ripple'
+                        className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                    >
+                        <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                            <Image
+                                src='/spiral.png'
+                                alt='Ripple'
+                                fill
+                                className='object-cover'
+                                sizes='28px'
+                            />
+                        </span>
+                        <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+                            Home
+                        </span>
+                    </Link>
+                )}
                 {mobilePrimaryLinks.map((link) => {
                     const active = isLinkActive(pathname, link.href);
                     return (
@@ -1075,6 +1126,7 @@ export function MainNav() {
                 })}
                 {userId ? (
                     <>
+                        {notificationsEnabled ? (
                         <Link
                             href='/notifications'
                             aria-label='Notifications'
@@ -1090,6 +1142,7 @@ export function MainNav() {
                                 unreadCount={unreadCount}
                             />
                         </Link>
+                        ) : null}
                         <button
                             ref={profileMenuMobileButtonRef}
                             type='button'
@@ -1119,7 +1172,9 @@ export function MainNav() {
                 )}
             </nav>
             <AnimatePresence>
-                {mobileMenuOpen && mobileOverflowLinks.length > 0 ? (
+                {!navigationDisabled &&
+                mobileMenuOpen &&
+                mobileOverflowLinks.length > 0 ? (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -1204,7 +1259,7 @@ export function MainNav() {
                               right: `${profileMenuPosition.right}px`,
                           }}
                       >
-                          {role === 'admin' ? (
+                          {role === 'admin' && !navigationDisabled ? (
                               <Link
                                   href='/admin'
                                   onClick={() => setProfileMenuOpen(false)}
@@ -1246,4 +1301,5 @@ export function MainNav() {
         </header>
     );
 }
+
 

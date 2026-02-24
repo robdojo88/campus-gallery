@@ -7,6 +7,7 @@ export interface User {
     name: string;
     email: string;
     usn?: string;
+    isSuspended?: boolean;
     role: UserRole;
     avatarUrl: string;
     incognitoAlias?: string;
