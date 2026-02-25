@@ -40,11 +40,11 @@ export function SessionLoader({ fullscreen = true }: { fullscreen?: boolean }) {
                     transition={{ delay: 0.15, duration: 0.25 }}
                     className='mt-5 text-center text-sm font-semibold text-slate-700'
                 >
-                    Initializing ...
+                    Loading ...
                 </motion.p>
                 <div className='mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100'>
                     <motion.div
-                        className='h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-600'
+                        className='h-full rounded-full bg-linear-to-r from-cyan-500 to-blue-600'
                         animate={{ x: ['-100%', '100%'] }}
                         transition={{
                             duration: 1.2,

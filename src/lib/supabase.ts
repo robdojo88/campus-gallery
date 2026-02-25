@@ -128,6 +128,10 @@ type DbIncognitoCommentLikeRow = {
     comment_id: string;
     user_id: string;
 };
+type DbPostEngagementRow = {
+    post_id: string;
+    user_id: string;
+};
 
 type DbNotification = {
     id: string;
@@ -177,12 +181,33 @@ type DbStudentRegistry = {
     updated_at: string;
 };
 
+export type TrendingPostEngagement = {
+    likes: number;
+    comments: number;
+    uniqueLikeUsers: number;
+    uniqueCommentUsers: number;
+    uniqueInteractionUsers: number;
+};
+
+export type TrendingHashtagInsight = {
+    tag: string;
+    uniqueUsers: number;
+};
+
+export type TrendingInsights = {
+    feed: Record<string, TrendingPostEngagement>;
+    freedom: Record<string, TrendingPostEngagement>;
+    incognito: Record<string, TrendingPostEngagement>;
+    hashtags: TrendingHashtagInsight[];
+};
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const DEFAULT_AVATAR_URL = '/avatar-default.svg';
 const INCOGNITO_ALIAS_PATTERN = /^[A-Za-z0-9._-]{3,24}$/;
 const INCOGNITO_ALIAS_RULES = 'Incognito alias must be 3-24 characters and use letters, numbers, dot, underscore, or hyphen.';
 const PENDING_LOGIN_USN_KEY = 'ripple_pending_login_usn';
+const HASHTAG_PATTERN = /(^|\s)#([A-Za-z0-9_]{2,32})/g;
 
 let browserClient: SupabaseClient | null = null;
 let sessionRecoveryPromise: Promise<void> | null = null;
@@ -795,6 +820,109 @@ function mapPosts(
             author: author ? mapUser(author) : undefined,
         };
     });
+}
+
+function extractHashtagsFromText(input: string): string[] {
+    const tags = new Set<string>();
+    const matcher = new RegExp(HASHTAG_PATTERN);
+    let match = matcher.exec(input);
+    while (match) {
+        const tag = (match[2] ?? '').toLowerCase();
+        if (tag) tags.add(tag);
+        match = matcher.exec(input);
+    }
+    return [...tags];
+}
+
+function buildHashtagInsights(
+    entries: Array<{ userId: string; text: string }>,
+    limit: number,
+): TrendingHashtagInsight[] {
+    const safeLimit = Math.max(1, Math.min(limit, 20));
+    const usersByTag = new Map<string, Set<string>>();
+
+    entries.forEach((entry) => {
+        const cleanedText = entry.text.trim();
+        if (!cleanedText) return;
+        const tags = extractHashtagsFromText(cleanedText);
+        if (tags.length === 0) return;
+
+        tags.forEach((tag) => {
+            const existingUsers = usersByTag.get(tag) ?? new Set<string>();
+            existingUsers.add(entry.userId);
+            usersByTag.set(tag, existingUsers);
+        });
+    });
+
+    return [...usersByTag.entries()]
+        .map(([tag, users]) => ({
+            tag: `#${tag}`,
+            uniqueUsers: users.size,
+        }))
+        .sort((a, b) =>
+            b.uniqueUsers !== a.uniqueUsers
+                ? b.uniqueUsers - a.uniqueUsers
+                : a.tag.localeCompare(b.tag),
+        )
+        .slice(0, safeLimit);
+}
+
+function buildTrendingEngagementByPostId(
+    likeRows: DbPostEngagementRow[],
+    commentRows: DbPostEngagementRow[],
+): Record<string, TrendingPostEngagement> {
+    const likesByPostId: Record<string, number> = {};
+    const commentsByPostId: Record<string, number> = {};
+    const uniqueLikeUsersByPostId = new Map<string, Set<string>>();
+    const uniqueCommentUsersByPostId = new Map<string, Set<string>>();
+    const uniqueInteractionUsersByPostId = new Map<string, Set<string>>();
+
+    likeRows.forEach((row) => {
+        likesByPostId[row.post_id] = (likesByPostId[row.post_id] ?? 0) + 1;
+        const likeUsers = uniqueLikeUsersByPostId.get(row.post_id) ?? new Set<string>();
+        likeUsers.add(row.user_id);
+        uniqueLikeUsersByPostId.set(row.post_id, likeUsers);
+
+        const interactionUsers =
+            uniqueInteractionUsersByPostId.get(row.post_id) ?? new Set<string>();
+        interactionUsers.add(row.user_id);
+        uniqueInteractionUsersByPostId.set(row.post_id, interactionUsers);
+    });
+
+    commentRows.forEach((row) => {
+        commentsByPostId[row.post_id] = (commentsByPostId[row.post_id] ?? 0) + 1;
+        const commentUsers =
+            uniqueCommentUsersByPostId.get(row.post_id) ?? new Set<string>();
+        commentUsers.add(row.user_id);
+        uniqueCommentUsersByPostId.set(row.post_id, commentUsers);
+
+        const interactionUsers =
+            uniqueInteractionUsersByPostId.get(row.post_id) ?? new Set<string>();
+        interactionUsers.add(row.user_id);
+        uniqueInteractionUsersByPostId.set(row.post_id, interactionUsers);
+    });
+
+    const postIds = new Set<string>([
+        ...Object.keys(likesByPostId),
+        ...Object.keys(commentsByPostId),
+        ...uniqueLikeUsersByPostId.keys(),
+        ...uniqueCommentUsersByPostId.keys(),
+        ...uniqueInteractionUsersByPostId.keys(),
+    ]);
+
+    const result: Record<string, TrendingPostEngagement> = {};
+    postIds.forEach((postId) => {
+        result[postId] = {
+            likes: likesByPostId[postId] ?? 0,
+            comments: commentsByPostId[postId] ?? 0,
+            uniqueLikeUsers: uniqueLikeUsersByPostId.get(postId)?.size ?? 0,
+            uniqueCommentUsers: uniqueCommentUsersByPostId.get(postId)?.size ?? 0,
+            uniqueInteractionUsers:
+                uniqueInteractionUsersByPostId.get(postId)?.size ?? 0,
+        };
+    });
+
+    return result;
 }
 
 export function hasSupabaseConfig(): boolean {
@@ -1482,6 +1610,224 @@ export async function fetchPosts(options?: { visibility?: Visibility }): Promise
     }
 
     return all;
+}
+
+export async function fetchTrendingInsights(input: {
+    feedPostIds?: string[];
+    freedomPostIds?: string[];
+    incognitoPostIds?: string[];
+    hashtagLimit?: number;
+} = {}): Promise<TrendingInsights> {
+    const supabase = getSupabase();
+    const sanitizeIds = (values: string[] | undefined): string[] => {
+        const seen = new Set<string>();
+        const ids: string[] = [];
+        (values ?? []).forEach((value) => {
+            const trimmed = value.trim();
+            if (!trimmed || seen.has(trimmed)) return;
+            seen.add(trimmed);
+            ids.push(trimmed);
+        });
+        return ids;
+    };
+
+    const feedPostIds = sanitizeIds(input.feedPostIds);
+    const freedomPostIds = sanitizeIds(input.freedomPostIds);
+    const incognitoPostIds = sanitizeIds(input.incognitoPostIds);
+    const hashtagLimit = Math.max(1, Math.min(input.hashtagLimit ?? 8, 20));
+
+    let feedLikesRows: DbPostEngagementRow[] = [];
+    let feedCommentRows: DbPostEngagementRow[] = [];
+    let freedomLikesRows: DbPostEngagementRow[] = [];
+    let freedomCommentRows: DbPostEngagementRow[] = [];
+    let incognitoLikesRows: DbPostEngagementRow[] = [];
+    let incognitoCommentRows: DbPostEngagementRow[] = [];
+
+    if (feedPostIds.length > 0) {
+        const [feedLikesResult, feedCommentsResult] = await Promise.all([
+            supabase
+                .from('likes')
+                .select('post_id,user_id')
+                .in('post_id', feedPostIds)
+                .returns<DbPostEngagementRow[]>(),
+            supabase
+                .from('comments')
+                .select('post_id,user_id')
+                .in('post_id', feedPostIds)
+                .returns<DbPostEngagementRow[]>(),
+        ]);
+
+        if (feedLikesResult.error) throw toAppError(feedLikesResult.error);
+        if (feedCommentsResult.error) throw toAppError(feedCommentsResult.error);
+        feedLikesRows = feedLikesResult.data ?? [];
+        feedCommentRows = feedCommentsResult.data ?? [];
+    }
+
+    if (freedomPostIds.length > 0) {
+        const [freedomLikesResult, freedomCommentsResult] = await Promise.all([
+            supabase
+                .from('freedom_wall_likes')
+                .select('post_id,user_id')
+                .in('post_id', freedomPostIds)
+                .returns<DbPostEngagementRow[]>(),
+            supabase
+                .from('freedom_wall_comments')
+                .select('post_id,user_id')
+                .in('post_id', freedomPostIds)
+                .returns<DbPostEngagementRow[]>(),
+        ]);
+
+        if (
+            freedomLikesResult.error &&
+            !isMissingTableError(freedomLikesResult.error, 'freedom_wall_likes')
+        ) {
+            throw toAppError(freedomLikesResult.error);
+        }
+        if (
+            freedomCommentsResult.error &&
+            !isMissingTableError(
+                freedomCommentsResult.error,
+                'freedom_wall_comments',
+            )
+        ) {
+            throw toAppError(freedomCommentsResult.error);
+        }
+
+        if (!freedomLikesResult.error) {
+            freedomLikesRows = freedomLikesResult.data ?? [];
+        }
+        if (!freedomCommentsResult.error) {
+            freedomCommentRows = freedomCommentsResult.data ?? [];
+        }
+    }
+
+    if (incognitoPostIds.length > 0) {
+        const [incognitoLikesResult, incognitoCommentsResult] = await Promise.all([
+            supabase
+                .from('incognito_likes')
+                .select('post_id,user_id')
+                .in('post_id', incognitoPostIds)
+                .returns<DbPostEngagementRow[]>(),
+            supabase
+                .from('incognito_comments')
+                .select('post_id,user_id')
+                .in('post_id', incognitoPostIds)
+                .returns<DbPostEngagementRow[]>(),
+        ]);
+
+        if (
+            incognitoLikesResult.error &&
+            !isMissingTableError(incognitoLikesResult.error, 'incognito_likes')
+        ) {
+            throw toAppError(incognitoLikesResult.error);
+        }
+        if (
+            incognitoCommentsResult.error &&
+            !isMissingTableError(incognitoCommentsResult.error, 'incognito_comments')
+        ) {
+            throw toAppError(incognitoCommentsResult.error);
+        }
+
+        if (!incognitoLikesResult.error) {
+            incognitoLikesRows = incognitoLikesResult.data ?? [];
+        }
+        if (!incognitoCommentsResult.error) {
+            incognitoCommentRows = incognitoCommentsResult.data ?? [];
+        }
+    }
+
+    type FeedHashtagRow = {
+        id: string;
+        user_id: string;
+        caption: string | null;
+    };
+    type FreedomHashtagRow = {
+        id: string;
+        user_id: string;
+        content: string;
+    };
+    type IncognitoHashtagRow = {
+        id: string;
+        user_id: string;
+        content: string;
+    };
+
+    let feedHashtagRows: FeedHashtagRow[] = [];
+    let freedomHashtagRows: FreedomHashtagRow[] = [];
+    let incognitoHashtagRows: IncognitoHashtagRow[] = [];
+
+    if (feedPostIds.length > 0) {
+        const { data, error } = await supabase
+            .from('posts')
+            .select('id,user_id,caption')
+            .in('id', feedPostIds)
+            .returns<FeedHashtagRow[]>();
+        if (error) throw toAppError(error);
+        feedHashtagRows = data ?? [];
+    }
+
+    if (freedomPostIds.length > 0) {
+        const { data, error } = await supabase
+            .from('freedom_wall_posts')
+            .select('id,user_id,content')
+            .in('id', freedomPostIds)
+            .returns<FreedomHashtagRow[]>();
+        if (error && !isMissingTableError(error, 'freedom_wall_posts')) {
+            throw toAppError(error);
+        }
+        if (!error) {
+            freedomHashtagRows = data ?? [];
+        }
+    }
+
+    if (incognitoPostIds.length > 0) {
+        const { data, error } = await supabase
+            .from('incognito_posts')
+            .select('id,user_id,content')
+            .in('id', incognitoPostIds)
+            .returns<IncognitoHashtagRow[]>();
+        if (error && !isMissingTableError(error, 'incognito_posts')) {
+            throw toAppError(error);
+        }
+        if (!error) {
+            incognitoHashtagRows = data ?? [];
+        }
+    }
+
+    const hashtagEntries: Array<{ userId: string; text: string }> = [];
+    feedHashtagRows.forEach((row) => {
+        if (row.caption) {
+            hashtagEntries.push({
+                userId: row.user_id,
+                text: row.caption,
+            });
+        }
+    });
+    freedomHashtagRows.forEach((row) => {
+        hashtagEntries.push({
+            userId: row.user_id,
+            text: row.content,
+        });
+    });
+    incognitoHashtagRows.forEach((row) => {
+        hashtagEntries.push({
+            userId: row.user_id,
+            text: row.content,
+        });
+    });
+
+    return {
+        feed: buildTrendingEngagementByPostId(feedLikesRows, feedCommentRows),
+        freedom: buildTrendingEngagementByPostId(
+            freedomLikesRows,
+            freedomCommentRows,
+        ),
+        incognito: buildTrendingEngagementByPostId(
+            incognitoLikesRows,
+            incognitoCommentRows,
+        ),
+        hashtags: buildHashtagInsights(hashtagEntries, hashtagLimit),
+    };
 }
 
 export async function fetchEventOptions(): Promise<Array<{ id: string; name: string }>> {

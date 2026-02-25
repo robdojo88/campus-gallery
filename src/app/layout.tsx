@@ -15,6 +15,28 @@ const headingFont = Space_Grotesk({
 export const metadata: Metadata = {
     title: 'Ripple',
     description: 'A camera-first real-time social platform.',
+    icons: {
+        icon: [
+            {
+                media: '(prefers-color-scheme: dark)',
+                url: '/favicon.ico',
+            },
+            {
+                media: '(prefers-color-scheme: light)',
+                url: '/favicon_.ico',
+            },
+        ],
+        shortcut: [
+            {
+                media: '(prefers-color-scheme: dark)',
+                url: '/favicon.ico',
+            },
+            {
+                media: '(prefers-color-scheme: light)',
+                url: '/favicon_.ico',
+            },
+        ],
+    },
 };
 
 export default function RootLayout({

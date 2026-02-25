@@ -11,6 +11,7 @@ import {
     fetchFreedomPosts,
     fetchIncognitoPosts,
     fetchPostsPage,
+    fetchTrendingInsights,
     getCurrentUserProfile,
 } from '@/lib/supabase';
 import type { UserRole } from '@/lib/types';
@@ -20,6 +21,8 @@ type SidebarLink = {
     label: string;
     hint: string;
 };
+
+const NAV_ROLE_CACHE_KEY = 'campus_gallery_nav_role';
 
 const sidebarLinks: SidebarLink[] = [
     { href: '/feed', label: 'Feed', hint: 'Campus timeline' },
@@ -54,6 +57,17 @@ function isActive(pathname: string, href: string): boolean {
     return pathname.startsWith(href);
 }
 
+function normalizeRole(value: unknown): UserRole | null {
+    if (value === 'admin' || value === 'member' || value === 'visitor')
+        return value;
+    return null;
+}
+
+function getCachedRole(): UserRole | null {
+    if (typeof window === 'undefined') return null;
+    return normalizeRole(window.localStorage.getItem(NAV_ROLE_CACHE_KEY));
+}
+
 function LeftSidebar({
     pathname,
     role,
@@ -61,10 +75,12 @@ function LeftSidebar({
     pathname: string;
     role: UserRole | null;
 }) {
-    const limitedVisitorMode = role !== 'admin' && role !== 'member';
+    const limitedVisitorMode = role === 'visitor';
     const visibleLinks = useMemo(() => {
         if (!limitedVisitorMode) return sidebarLinks;
-        return sidebarLinks.filter((link) => !VISITOR_HIDDEN_LINKS.has(link.href));
+        return sidebarLinks.filter(
+            (link) => !VISITOR_HIDDEN_LINKS.has(link.href),
+        );
     }, [limitedVisitorMode]);
 
     return (
@@ -142,7 +158,10 @@ type TrendingItem = {
     title: string;
     likes: number;
     comments: number;
-    interactions: number;
+    uniqueLikeUsers: number;
+    uniqueCommentUsers: number;
+    uniqueInteractionUsers: number;
+    trendScore: number;
     createdAt: string;
     previewImages: string[];
 };
@@ -152,7 +171,13 @@ type TrendingHashtag = {
     count: number;
 };
 
-const HASHTAG_PATTERN = /(^|\s)#([A-Za-z0-9_]{2,32})/g;
+type TrendingEngagement = {
+    likes: number;
+    comments: number;
+    uniqueLikeUsers: number;
+    uniqueCommentUsers: number;
+    uniqueInteractionUsers: number;
+};
 
 function safeTimeValue(timestamp: string): number {
     const value = new Date(timestamp).getTime();
@@ -181,47 +206,58 @@ function normalizePreviewImages(
     return unique;
 }
 
-function extractHashtags(input: string): string[] {
-    const tags = new Set<string>();
-    const matcher = new RegExp(HASHTAG_PATTERN);
-    let match = matcher.exec(input);
-    while (match) {
-        const tag = (match[2] ?? '').toLowerCase();
-        if (tag) tags.add(tag);
-        match = matcher.exec(input);
-    }
-    return [...tags];
+function resolveTrendingEngagement(
+    engagement: Partial<TrendingEngagement> | undefined,
+    fallbackLikes: number,
+    fallbackComments: number,
+): TrendingEngagement {
+    const likes = engagement?.likes ?? fallbackLikes;
+    const comments = engagement?.comments ?? fallbackComments;
+    const uniqueLikeUsers = engagement?.uniqueLikeUsers ?? likes;
+    const uniqueCommentUsers = engagement?.uniqueCommentUsers ?? comments;
+    const uniqueInteractionUsers =
+        engagement?.uniqueInteractionUsers ??
+        Math.max(uniqueLikeUsers, uniqueCommentUsers);
+
+    return {
+        likes,
+        comments,
+        uniqueLikeUsers,
+        uniqueCommentUsers,
+        uniqueInteractionUsers,
+    };
 }
 
-function buildTrendingHashtags(
-    texts: string[],
-    limit: number,
-): TrendingHashtag[] {
-    const counts = new Map<string, number>();
-    for (const text of texts) {
-        for (const tag of extractHashtags(text)) {
-            counts.set(tag, (counts.get(tag) ?? 0) + 1);
-        }
-    }
-    return [...counts.entries()]
-        .sort((a, b) =>
-            b[1] !== a[1] ? b[1] - a[1] : a[0].localeCompare(b[0]),
-        )
-        .slice(0, limit)
-        .map(([tag, count]) => ({ tag: `#${tag}`, count }));
+function calculateTrendScore(engagement: TrendingEngagement): number {
+    return (
+        engagement.uniqueInteractionUsers * 1000 +
+        engagement.uniqueCommentUsers * 100 +
+        engagement.uniqueLikeUsers * 10 +
+        engagement.comments +
+        engagement.likes
+    );
 }
 
 function sortByTrendScore(items: TrendingItem[]): TrendingItem[] {
     return [...items].sort((a, b) => {
-        if (b.interactions !== a.interactions) {
-            return b.interactions - a.interactions;
+        if (b.trendScore !== a.trendScore) {
+            return b.trendScore - a.trendScore;
+        }
+        if (b.uniqueInteractionUsers !== a.uniqueInteractionUsers) {
+            return b.uniqueInteractionUsers - a.uniqueInteractionUsers;
+        }
+        if (b.uniqueCommentUsers !== a.uniqueCommentUsers) {
+            return b.uniqueCommentUsers - a.uniqueCommentUsers;
+        }
+        if (b.uniqueLikeUsers !== a.uniqueLikeUsers) {
+            return b.uniqueLikeUsers - a.uniqueLikeUsers;
         }
         return safeTimeValue(b.createdAt) - safeTimeValue(a.createdAt);
     });
 }
 
 function RightSidebar({ role }: { role: UserRole | null }) {
-    const limitedVisitorMode = role !== 'admin' && role !== 'member';
+    const limitedVisitorMode = role === 'visitor';
     const [items, setItems] = useState<TrendingItem[]>([]);
     const [hashtags, setHashtags] = useState<TrendingHashtag[]>([]);
     const [previewIndexByKey, setPreviewIndexByKey] = useState<
@@ -244,26 +280,42 @@ function RightSidebar({ role }: { role: UserRole | null }) {
                         visibility: 'campus',
                         limit: 80,
                     });
+                    const insights = await fetchTrendingInsights({
+                        feedPostIds: feedPage.items.map((post) => post.id),
+                    });
 
                     const topFeedItems = sortByTrendScore(
-                        feedPage.items.map((post) => ({
-                            key: `feed-${post.id}`,
-                            source: 'Feed' as const,
-                            href: `/feed?post=${encodeURIComponent(post.id)}`,
-                            title: normalizePreviewText(
-                                post.caption || post.eventName || '',
-                                'Feed post',
-                            ),
-                            likes: post.likes,
-                            comments: post.comments,
-                            interactions: post.likes + post.comments,
-                            createdAt: post.createdAt,
-                            previewImages: normalizePreviewImages([
-                                ...(post.images ?? []),
-                                post.imageUrl,
-                            ]),
-                        })),
-                    ).slice(0, 5);
+                        feedPage.items.map((post) => {
+                            const engagement = resolveTrendingEngagement(
+                                insights.feed[post.id],
+                                post.likes,
+                                post.comments,
+                            );
+
+                            return {
+                                key: `feed-${post.id}`,
+                                source: 'Feed' as const,
+                                href: `/feed?post=${encodeURIComponent(post.id)}`,
+                                title: normalizePreviewText(
+                                    post.caption || post.eventName || '',
+                                    'Feed post',
+                                ),
+                                likes: engagement.likes,
+                                comments: engagement.comments,
+                                uniqueLikeUsers: engagement.uniqueLikeUsers,
+                                uniqueCommentUsers:
+                                    engagement.uniqueCommentUsers,
+                                uniqueInteractionUsers:
+                                    engagement.uniqueInteractionUsers,
+                                trendScore: calculateTrendScore(engagement),
+                                createdAt: post.createdAt,
+                                previewImages: normalizePreviewImages([
+                                    ...(post.images ?? []),
+                                    post.imageUrl,
+                                ]),
+                            };
+                        }),
+                    ).slice(0, 2);
 
                     if (!mounted) return;
                     setItems(topFeedItems);
@@ -282,79 +334,116 @@ function RightSidebar({ role }: { role: UserRole | null }) {
                         fetchFreedomPosts(),
                         fetchIncognitoPosts(),
                     ]);
-
-                const hashtagTexts: string[] = [];
-                feedPage.items.forEach((post) => {
-                    hashtagTexts.push(post.caption ?? '');
+                const insights = await fetchTrendingInsights({
+                    feedPostIds: feedPage.items.map((post) => post.id),
+                    freedomPostIds: freedomPosts.map((post) => post.id),
+                    incognitoPostIds: incognitoPosts.map((post) => post.id),
+                    hashtagLimit: 8,
                 });
-                freedomPosts.forEach((post) => {
-                    hashtagTexts.push(post.content);
-                });
-                incognitoPosts.forEach((post) => {
-                    hashtagTexts.push(post.content);
-                });
-                const nextHashtags = buildTrendingHashtags(hashtagTexts, 8);
 
                 const feedTrending = sortByTrendScore(
-                    feedPage.items.map((post) => ({
-                        key: `feed-${post.id}`,
-                        source: 'Feed' as const,
-                        href: `/feed?post=${encodeURIComponent(post.id)}`,
-                        title: normalizePreviewText(
-                            post.caption || post.eventName || '',
-                            'Campus post',
-                        ),
-                        likes: post.likes,
-                        comments: post.comments,
-                        interactions: post.likes + post.comments,
-                        createdAt: post.createdAt,
-                        previewImages: normalizePreviewImages([
-                            ...(post.images ?? []),
-                            post.imageUrl,
-                        ]),
-                    })),
-                )[0];
+                    feedPage.items.map((post) => {
+                        const engagement = resolveTrendingEngagement(
+                            insights.feed[post.id],
+                            post.likes,
+                            post.comments,
+                        );
+
+                        return {
+                            key: `feed-${post.id}`,
+                            source: 'Feed' as const,
+                            href: `/feed?post=${encodeURIComponent(post.id)}`,
+                            title: normalizePreviewText(
+                                post.caption || post.eventName || '',
+                                'Campus post',
+                            ),
+                            likes: engagement.likes,
+                            comments: engagement.comments,
+                            uniqueLikeUsers: engagement.uniqueLikeUsers,
+                            uniqueCommentUsers: engagement.uniqueCommentUsers,
+                            uniqueInteractionUsers:
+                                engagement.uniqueInteractionUsers,
+                            trendScore: calculateTrendScore(engagement),
+                            createdAt: post.createdAt,
+                            previewImages: normalizePreviewImages([
+                                ...(post.images ?? []),
+                                post.imageUrl,
+                            ]),
+                        };
+                    }),
+                ).slice(0, 2);
 
                 const freedomTrending = sortByTrendScore(
-                    freedomPosts.map((post) => ({
-                        key: `freedom-${post.id}`,
-                        source: 'Freedom Wall' as const,
-                        href: `/freedom-wall?post=${encodeURIComponent(
-                            post.id,
-                        )}`,
-                        title: normalizePreviewText(
-                            post.content,
-                            'Freedom Wall post',
-                        ),
-                        likes: post.likes,
-                        comments: post.comments,
-                        interactions: post.likes + post.comments,
-                        createdAt: post.createdAt,
-                        previewImages: normalizePreviewImages([post.imageUrl]),
-                    })),
-                )[0];
+                    freedomPosts.map((post) => {
+                        const engagement = resolveTrendingEngagement(
+                            insights.freedom[post.id],
+                            post.likes,
+                            post.comments,
+                        );
+
+                        return {
+                            key: `freedom-${post.id}`,
+                            source: 'Freedom Wall' as const,
+                            href: `/freedom-wall?post=${encodeURIComponent(
+                                post.id,
+                            )}`,
+                            title: normalizePreviewText(
+                                post.content,
+                                'Freedom Wall post',
+                            ),
+                            likes: engagement.likes,
+                            comments: engagement.comments,
+                            uniqueLikeUsers: engagement.uniqueLikeUsers,
+                            uniqueCommentUsers: engagement.uniqueCommentUsers,
+                            uniqueInteractionUsers:
+                                engagement.uniqueInteractionUsers,
+                            trendScore: calculateTrendScore(engagement),
+                            createdAt: post.createdAt,
+                            previewImages: normalizePreviewImages([
+                                post.imageUrl,
+                            ]),
+                        };
+                    }),
+                ).slice(0, 2);
 
                 const incognitoTrending = sortByTrendScore(
-                    incognitoPosts.map((post) => ({
-                        key: `incognito-${post.id}`,
-                        source: 'Incognito' as const,
-                        href: `/incognito?post=${encodeURIComponent(post.id)}`,
-                        title: normalizePreviewText(
-                            post.content,
-                            'Incognito post',
-                        ),
-                        likes: post.likes,
-                        comments: post.comments,
-                        interactions: post.likes + post.comments,
-                        createdAt: post.createdAt,
-                        previewImages: [],
-                    })),
-                )[0];
+                    incognitoPosts.map((post) => {
+                        const engagement = resolveTrendingEngagement(
+                            insights.incognito[post.id],
+                            post.likes,
+                            post.comments,
+                        );
 
-                const nextItems: TrendingItem[] = [];
-                if (feedTrending) nextItems.push(feedTrending);
-                if (freedomTrending) nextItems.push(freedomTrending);
-                if (incognitoTrending) nextItems.push(incognitoTrending);
+                        return {
+                            key: `incognito-${post.id}`,
+                            source: 'Incognito' as const,
+                            href: `/incognito?post=${encodeURIComponent(post.id)}`,
+                            title: normalizePreviewText(
+                                post.content,
+                                'Incognito post',
+                            ),
+                            likes: engagement.likes,
+                            comments: engagement.comments,
+                            uniqueLikeUsers: engagement.uniqueLikeUsers,
+                            uniqueCommentUsers: engagement.uniqueCommentUsers,
+                            uniqueInteractionUsers:
+                                engagement.uniqueInteractionUsers,
+                            trendScore: calculateTrendScore(engagement),
+                            createdAt: post.createdAt,
+                            previewImages: [],
+                        };
+                    }),
+                ).slice(0, 2);
+
+                const nextItems: TrendingItem[] = [
+                    ...feedTrending,
+                    ...freedomTrending,
+                    ...incognitoTrending,
+                ];
+                const nextHashtags = insights.hashtags.map((item) => ({
+                    tag: item.tag,
+                    count: item.uniqueUsers,
+                }));
 
                 if (!mounted) return;
 
@@ -414,7 +503,7 @@ function RightSidebar({ role }: { role: UserRole | null }) {
                 });
                 return next;
             });
-        }, 3000);
+        }, 10000);
 
         return () => {
             window.clearInterval(timer);
@@ -423,8 +512,8 @@ function RightSidebar({ role }: { role: UserRole | null }) {
 
     return (
         <aside className='hidden xl:block'>
-            <div className='fixed top-20 w-[22%] space-y-4'>
-                <section className='rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'>
+            <div className='fixed top-20 w-[22%]'>
+                <section className='max-h-[calc(100vh-6rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'>
                     <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
                         Trending Posts
                     </p>
@@ -512,8 +601,10 @@ function RightSidebar({ role }: { role: UserRole | null }) {
                                             </div>
                                         ) : null}
                                         <p className='mt-2 text-[11px] text-slate-600'>
-                                            {item.interactions} interactions |{' '}
-                                            {item.comments} comments
+                                            {item.uniqueInteractionUsers} unique
+                                            users | {item.uniqueCommentUsers}{' '}
+                                            commenters | {item.uniqueLikeUsers}{' '}
+                                            likers
                                         </p>
                                     </Link>
                                 );
@@ -534,7 +625,7 @@ function RightSidebar({ role }: { role: UserRole | null }) {
                                     >
                                         {item.tag}{' '}
                                         <span className='text-slate-500'>
-                                            {item.count}
+                                            {item.count} users
                                         </span>
                                     </Link>
                                 ))}
@@ -551,9 +642,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const [role, setRole] = useState<UserRole | null>(null);
     const [isSuspended, setIsSuspended] = useState(false);
+    const hasResolvedRole = role !== null;
     const isCameraRoute = pathname.startsWith('/camera');
-    const showLeftSidebar = !isCameraRoute && !isSuspended;
+    const showLeftSidebar = hasResolvedRole && !isCameraRoute && !isSuspended;
     const showRightSidebar =
+        hasResolvedRole &&
         !isCameraRoute &&
         !isSuspended &&
         !pathname.startsWith('/admin') &&
@@ -564,12 +657,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         void getCurrentUserProfile()
             .then((profile) => {
                 if (!mounted) return;
-                setRole(profile?.role ?? null);
+                setRole(profile?.role ?? getCachedRole());
                 setIsSuspended(profile?.isSuspended === true);
             })
             .catch(() => {
                 if (!mounted) return;
-                setRole(null);
                 setIsSuspended(false);
             });
         return () => {
@@ -602,4 +694,3 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
     );
 }
-

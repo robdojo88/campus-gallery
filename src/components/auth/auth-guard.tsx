@@ -5,7 +5,11 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
 import { SessionLoader } from '@/components/ui/session-loader';
-import { ensureUserProfile, getCurrentUserProfile, getSessionUser } from '@/lib/supabase';
+import {
+    ensureUserProfile,
+    getCurrentUserProfile,
+    getSessionUser,
+} from '@/lib/supabase';
 import type { UserRole } from '@/lib/types';
 
 export function AuthGuard({
@@ -21,7 +25,8 @@ export function AuthGuard({
     const [allowed, setAllowed] = useState(false);
     const rolesKey = roles?.join('|') ?? '';
     const normalizedRoles = useMemo<UserRole[]>(
-        () => (rolesKey ? (rolesKey.split('|').filter(Boolean) as UserRole[]) : []),
+        () =>
+            rolesKey ? (rolesKey.split('|').filter(Boolean) as UserRole[]) : [],
         [rolesKey],
     );
 
@@ -32,7 +37,8 @@ export function AuthGuard({
     }
 
     function roleFromMetadata(value: unknown): UserRole {
-        if (value === 'admin' || value === 'member' || value === 'visitor') return value;
+        if (value === 'admin' || value === 'member' || value === 'visitor')
+            return value;
         return 'visitor';
     }
 
@@ -59,7 +65,8 @@ export function AuthGuard({
                     profile = null;
                 }
 
-                const effectiveRole = profile?.role ?? roleFromMetadata(user.user_metadata?.role);
+                const effectiveRole =
+                    profile?.role ?? roleFromMetadata(user.user_metadata?.role);
                 const suspended = profile?.isSuspended === true;
                 const ownProfilePath = `/profile/${user.id}`;
 
@@ -113,4 +120,3 @@ export function AuthGuard({
 
     return <>{children}</>;
 }
-

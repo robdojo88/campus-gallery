@@ -34,6 +34,8 @@ type NavLink = {
 
 const NAV_ROLE_CACHE_KEY = 'campus_gallery_nav_role';
 const NAV_USER_CACHE_KEY = 'campus_gallery_nav_user_id';
+const NAV_AVATAR_CACHE_KEY = 'campus_gallery_nav_avatar_url';
+const NAV_NAME_CACHE_KEY = 'campus_gallery_nav_display_name';
 const THEME_CACHE_KEY = 'campus_gallery_theme_mode';
 const DEFAULT_AVATAR_URL = '/avatar-default.svg';
 const LIGHT_BODY_CLASSES = ['bg-slate-100', 'text-slate-900'];
@@ -283,16 +285,39 @@ function getCachedUserId(): string | null {
     return trimmed || null;
 }
 
-function cacheAuthSnapshot(role: UserRole, userId: string): void {
+function getCachedAvatarUrl(): string {
+    if (typeof window === 'undefined') return DEFAULT_AVATAR_URL;
+    const value = window.localStorage.getItem(NAV_AVATAR_CACHE_KEY);
+    const trimmed = value?.trim() ?? '';
+    return trimmed || DEFAULT_AVATAR_URL;
+}
+
+function getCachedDisplayName(): string {
+    if (typeof window === 'undefined') return 'User';
+    const value = window.localStorage.getItem(NAV_NAME_CACHE_KEY);
+    const trimmed = value?.trim() ?? '';
+    return trimmed || 'User';
+}
+
+function cacheAuthSnapshot(
+    role: UserRole,
+    userId: string,
+    avatarUrl: string,
+    displayName: string,
+): void {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(NAV_ROLE_CACHE_KEY, role);
     window.localStorage.setItem(NAV_USER_CACHE_KEY, userId);
+    window.localStorage.setItem(NAV_AVATAR_CACHE_KEY, avatarUrl);
+    window.localStorage.setItem(NAV_NAME_CACHE_KEY, displayName);
 }
 
 function clearAuthSnapshot(): void {
     if (typeof window === 'undefined') return;
     window.localStorage.removeItem(NAV_ROLE_CACHE_KEY);
     window.localStorage.removeItem(NAV_USER_CACHE_KEY);
+    window.localStorage.removeItem(NAV_AVATAR_CACHE_KEY);
+    window.localStorage.removeItem(NAV_NAME_CACHE_KEY);
 }
 
 function resolveInitialThemeMode(): ThemeMode {
@@ -364,6 +389,7 @@ export function MainNav({
     const [userId, setUserId] = useState<string | null>(null);
     const [userAvatarUrl, setUserAvatarUrl] = useState(DEFAULT_AVATAR_URL);
     const [userDisplayName, setUserDisplayName] = useState('User');
+    const [authResolved, setAuthResolved] = useState(false);
     const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
         resolveInitialThemeMode(),
     );
@@ -384,6 +410,17 @@ export function MainNav({
     const profileMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
     const profileMenuPanelRef = useRef<HTMLDivElement | null>(null);
     const searchWrapperRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        const cachedRole = getCachedRole();
+        const cachedUserId = getCachedUserId();
+        const cachedAvatarUrl = getCachedAvatarUrl();
+        const cachedDisplayName = getCachedDisplayName();
+        if (cachedRole) setRole(cachedRole);
+        if (cachedUserId) setUserId(cachedUserId);
+        setUserAvatarUrl(cachedAvatarUrl);
+        setUserDisplayName(cachedDisplayName);
+    }, []);
 
     useEffect(() => {
         applyBodyTheme(themeMode);
@@ -460,39 +497,62 @@ export function MainNav({
                     return;
                 }
                 setUserId(user.id);
-                setUserDisplayName(user.email?.split('@')[0] ?? 'User');
+                setUserDisplayName((current) =>
+                    current === 'User'
+                        ? (user.email?.split('@')[0] ?? 'User')
+                        : current,
+                );
 
-                const metadataRole =
-                    normalizeRole(user.user_metadata?.role) ?? 'visitor';
-                setRole((current) => current ?? metadataRole);
+                const metadataRole = normalizeRole(user.user_metadata?.role);
+                if (metadataRole) {
+                    setRole((current) => current ?? metadataRole);
+                }
                 const profile = await getCurrentUserProfile();
                 if (!mounted) return;
-                const resolvedRole = profile?.role ?? metadataRole;
+                const resolvedRole =
+                    profile?.role ?? metadataRole ?? getCachedRole();
                 setProfileSuspended(profile?.isSuspended === true);
                 let unread = 0;
-                if (resolvedRole !== 'visitor') {
+                if (resolvedRole === 'admin' || resolvedRole === 'member') {
                     try {
                         unread = await countUnreadNotifications();
                     } catch {
                         unread = 0;
                     }
                 }
-                setRole(resolvedRole);
-                setUserDisplayName(
-                    profile?.name ?? user.email?.split('@')[0] ?? 'User',
-                );
-                setUserAvatarUrl(profile?.avatarUrl || DEFAULT_AVATAR_URL);
+                if (resolvedRole) {
+                    setRole(resolvedRole);
+                }
+                const resolvedDisplayName =
+                    profile?.name ?? user.email?.split('@')[0] ?? 'User';
+                const resolvedAvatarUrl =
+                    profile?.avatarUrl || DEFAULT_AVATAR_URL;
+                setUserDisplayName(resolvedDisplayName);
+                setUserAvatarUrl(resolvedAvatarUrl);
                 setUnreadCount(unread);
-                cacheAuthSnapshot(resolvedRole, user.id);
+                if (resolvedRole) {
+                    cacheAuthSnapshot(
+                        resolvedRole,
+                        user.id,
+                        resolvedAvatarUrl,
+                        resolvedDisplayName,
+                    );
+                }
             } catch {
                 if (!mounted) return;
                 const cachedRole = getCachedRole();
                 const cachedUserId = getCachedUserId();
+                const cachedAvatarUrl = getCachedAvatarUrl();
+                const cachedDisplayName = getCachedDisplayName();
                 if (cachedRole) setRole(cachedRole);
                 if (cachedUserId) setUserId(cachedUserId);
                 setProfileSuspended(false);
-                setUserAvatarUrl(DEFAULT_AVATAR_URL);
+                setUserAvatarUrl(cachedAvatarUrl);
+                setUserDisplayName(cachedDisplayName);
                 setUnreadCount(0);
+            } finally {
+                if (!mounted) return;
+                setAuthResolved(true);
             }
         }
         void load();
@@ -973,7 +1033,12 @@ export function MainNav({
                     })}
                 </nav>
                 <div className='ml-auto flex items-center gap-2'>
-                    {userId ? (
+                    {!authResolved ? (
+                        <span
+                            className='h-10 w-10 rounded-full bg-slate-100 ring-2 ring-slate-200'
+                            aria-hidden='true'
+                        />
+                    ) : userId ? (
                         <>
                             {notificationsEnabled ? (
                             <Link
@@ -1124,7 +1189,12 @@ export function MainNav({
                         />
                     );
                 })}
-                {userId ? (
+                {!authResolved ? (
+                    <span
+                        className='h-9 w-9 shrink-0 rounded-full bg-slate-100 ring-2 ring-slate-200'
+                        aria-hidden='true'
+                    />
+                ) : userId ? (
                     <>
                         {notificationsEnabled ? (
                         <Link
