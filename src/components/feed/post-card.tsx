@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Image from 'next/image';
 import {
@@ -9,6 +9,7 @@ import {
     useState,
     type TouchEvent,
 } from 'react';
+import { Button, Card, CardBody, Chip } from '@heroui/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusPopper } from '@/components/ui/status-popper';
@@ -38,9 +39,7 @@ type ReplyTarget = {
 };
 
 type CommentSortOrder = 'recent' | 'oldest';
-type DeleteTarget =
-    | { kind: 'post' }
-    | { kind: 'comment'; commentId: string };
+type DeleteTarget = { kind: 'post' } | { kind: 'comment'; commentId: string };
 
 type CommentNode = PostComment & { replies: CommentNode[] };
 
@@ -483,7 +482,7 @@ export function PostCard({
     const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
     const postedAt = formatFeedTimestamp(post.createdAt);
     const postMeta = post.eventName
-        ? `${postedAt} • ${post.eventName}`
+        ? `${postedAt} - ${post.eventName}`
         : postedAt;
     const [liked, setLiked] = useState(false);
     const [likesCount, setLikesCount] = useState(post.likes);
@@ -712,11 +711,7 @@ export function PostCard({
 
     useEffect(() => {
         if (!showEngagement) return;
-        if (
-            !targetCommentId ||
-            showComments ||
-            ignoreTargetCommentAutoOpen
-        )
+        if (!targetCommentId || showComments || ignoreTargetCommentAutoOpen)
             return;
         setShowComments(true);
     }, [
@@ -1084,7 +1079,8 @@ export function PostCard({
         };
         walk(nodes);
         return flattened.sort((a, b) => {
-            const delta = safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt);
+            const delta =
+                safeTimeValue(a.createdAt) - safeTimeValue(b.createdAt);
             if (delta !== 0) return delta;
             return a.id.localeCompare(b.id);
         });
@@ -1151,7 +1147,9 @@ export function PostCard({
                                     <span>{node.likes}</span>
                                 </button>
                             ) : null}
-                            {allowCommenting && (!currentUserId || node.userId !== currentUserId) ? (
+                            {allowCommenting &&
+                            (!currentUserId ||
+                                node.userId !== currentUserId) ? (
                                 <button
                                     type='button'
                                     onClick={() => onReplyToComment(node)}
@@ -1201,7 +1199,8 @@ export function PostCard({
                                     }
                                     onKeyDown={(event) => {
                                         if (event.key !== 'Enter') return;
-                                        if (event.nativeEvent.isComposing) return;
+                                        if (event.nativeEvent.isComposing)
+                                            return;
                                         event.preventDefault();
                                         void onAddComment();
                                     }}
@@ -1290,238 +1289,278 @@ export function PostCard({
         confirmDeleteTarget?.kind === 'post'
             ? 'This action permanently removes the post and all related comments.'
             : 'This action permanently removes this comment.';
+    const showFooterSection = showEngagement || Boolean(status);
 
     return (
-        <article className='flex min-h-[90svh] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:min-h-[90vh]'>
-            <div className='p-4 md:p-5'>
-                <div className='flex items-start justify-between gap-3'>
-                    <div className='flex items-center gap-3'>
-                        <button
-                            type='button'
-                            onClick={() => openLightbox(0)}
-                            className='h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100'
-                        >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                                src={avatarUrl}
-                                alt={author?.name ?? 'User avatar'}
-                                className='h-full w-full object-cover'
-                            />
-                        </button>
-                        <div className='min-w-0'>
-                            <p className='truncate text-sm font-semibold text-slate-900'>
-                                {author?.name ?? 'Unknown'}
-                            </p>
-                            <p className='text-xs text-slate-500'>{postMeta}</p>
-                        </div>
-                    </div>
-                    <div className='flex items-center gap-2'>
-                        {canReport ? (
+        <Card
+            className={`flex flex-col overflow-hidden border border-slate-200 bg-white shadow-sm ${
+                showEngagement ? 'min-h-[90svh] md:min-h-[90vh]' : ''
+            }`}
+        >
+            <CardBody className='p-0'>
+                <div className='p-4 md:p-5'>
+                    <div className='flex items-start justify-between gap-3'>
+                        <div className='flex items-center gap-3'>
                             <button
                                 type='button'
-                                onClick={() => void onReportPost()}
-                                disabled={busyDeleteId === post.id}
-                                className='rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                onClick={() => openLightbox(0)}
+                                className='h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100'
                             >
-                                Report
-                            </button>
-                        ) : null}
-                        {isAdmin ? (
-                            <button
-                                type='button'
-                                onClick={() => void onAdminDeletePost()}
-                                disabled={busyDeleteId === post.id}
-                                className='rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60'
-                            >
-                                Delete
-                            </button>
-                        ) : null}
-                    </div>
-                </div>
-                {post.caption ? (
-                    <p className='mt-3 text-sm text-slate-700'>
-                        {post.caption}
-                    </p>
-                ) : null}
-            </div>
-            <PostImageGrid images={images} onOpen={openLightbox} />
-            <div className='space-y-3 p-4 md:p-5'>
-                {showEngagement ? (
-                    <>
-                        <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
-                            <div className='inline-flex items-center gap-1.5'>
-                                <HeartIcon filled className='h-4 w-4 text-rose-500' />
-                                <span>{likesCount}</span>
-                            </div>
-                            <div className='inline-flex items-center gap-1.5'>
-                                <CommentIcon className='h-4 w-4 text-slate-500' />
-                                <span>{commentsCount}</span>
-                            </div>
-                        </div>
-                        <div className='grid grid-cols-2 gap-2'>
-                            <button
-                                type='button'
-                                onClick={() => void onToggleLike()}
-                                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                                    liked
-                                        ? 'border-rose-200 bg-rose-50 text-rose-600'
-                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                }`}
-                            >
-                                <HeartIcon
-                                    filled={liked}
-                                    className={`h-4 w-4 ${liked ? 'text-rose-600' : 'text-slate-500'}`}
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                    src={avatarUrl}
+                                    alt={author?.name ?? 'User avatar'}
+                                    className='h-full w-full object-cover'
                                 />
-                                <span>Like</span>
                             </button>
-                            <button
-                                type='button'
-                                onClick={() =>
-                                    setShowComments((prev) => {
-                                        const next = !prev;
-                                        if (!next) {
-                                            setReplyTarget(null);
-                                            setCommentsAutoLoad(false);
-                                            if (targetCommentId) {
-                                                setIgnoreTargetCommentAutoOpen(true);
-                                            }
-                                        }
-                                        return next;
-                                    })
-                                }
-                                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                                    showComments
-                                        ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
-                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                }`}
-                            >
-                                <CommentIcon
-                                    className={`h-4 w-4 ${showComments ? 'text-cyan-700' : 'text-slate-500'}`}
-                                />
-                                <span>Comment</span>
-                            </button>
-                        </div>
-                        {allowCommenting && (!replyTarget || !showComments) ? (
-                            <form
-                                className='flex gap-2'
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    void onAddComment();
-                                }}
-                            >
-                                <input
-                                    ref={commentInputRef}
-                                    value={commentInput}
-                                    onChange={(event) =>
-                                        setCommentInput(event.target.value)
-                                    }
-                                    onKeyDown={(event) => {
-                                        if (event.key !== 'Enter') return;
-                                        if (event.nativeEvent.isComposing) return;
-                                        event.preventDefault();
-                                        void onAddComment();
-                                    }}
-                                    placeholder='Write a comment'
-                                    className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
-                                />
-                                <button
-                                    type='submit'
-                                    className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700'
+                            <div className='min-w-0'>
+                                <p className='truncate text-sm font-semibold text-slate-900'>
+                                    {author?.name ?? 'Unknown'}
+                                </p>
+                                <Chip
+                                    size='sm'
+                                    variant='flat'
+                                    className='mt-1 w-fit bg-slate-100 text-xs text-slate-500'
                                 >
-                                    Send
-                                </button>
-                            </form>
-                        ) : null}
-                        {showComments ? (
-                            <div
-                                ref={commentsContainerRef}
-                                className='space-y-2 rounded-2xl bg-slate-50 p-3'
-                            >
-                                <div className='flex flex-wrap items-center justify-end gap-2'>
-                                    <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
-                                        <span>Sort</span>
-                                        <select
-                                            value={commentSortOrder}
+                                    {postMeta}
+                                </Chip>
+                            </div>
+                        </div>
+                        <div className='flex items-center gap-2'>
+                            {canReport ? (
+                                <Button
+                                    onClick={() => void onReportPost()}
+                                    isDisabled={busyDeleteId === post.id}
+                                    size='sm'
+                                    radius='full'
+                                    variant='flat'
+                                    color='warning'
+                                    className='text-[11px] font-semibold'
+                                >
+                                    Report
+                                </Button>
+                            ) : null}
+                            {isAdmin ? (
+                                <Button
+                                    onClick={() => void onAdminDeletePost()}
+                                    isDisabled={busyDeleteId === post.id}
+                                    size='sm'
+                                    radius='full'
+                                    variant='flat'
+                                    color='danger'
+                                    className='text-[11px] font-semibold'
+                                >
+                                    Delete
+                                </Button>
+                            ) : null}
+                        </div>
+                    </div>
+                    {post.caption ? (
+                        <p className='mt-3 text-sm text-slate-700'>
+                            {post.caption}
+                        </p>
+                    ) : null}
+                </div>
+                <PostImageGrid images={images} onOpen={openLightbox} />
+                {showFooterSection ? (
+                    <div className='space-y-3 p-4 md:p-5'>
+                        {showEngagement ? (
+                            <>
+                                <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
+                                    <div className='inline-flex items-center gap-1.5'>
+                                        <HeartIcon
+                                            filled
+                                            className='h-4 w-4 text-rose-500'
+                                        />
+                                        <span>{likesCount}</span>
+                                    </div>
+                                    <div className='inline-flex items-center gap-1.5'>
+                                        <CommentIcon className='h-4 w-4 text-slate-500' />
+                                        <span>{commentsCount}</span>
+                                    </div>
+                                </div>
+                                <div className='grid grid-cols-2 gap-2'>
+                                    <Button
+                                        onClick={() => void onToggleLike()}
+                                        radius='lg'
+                                        variant='flat'
+                                        className={`inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
+                                            liked
+                                                ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <HeartIcon
+                                            filled={liked}
+                                            className={`h-4 w-4 ${liked ? 'text-rose-600' : 'text-slate-500'}`}
+                                        />
+                                        <span>Like</span>
+                                    </Button>
+                                    <Button
+                                        onClick={() =>
+                                            setShowComments((prev) => {
+                                                const next = !prev;
+                                                if (!next) {
+                                                    setReplyTarget(null);
+                                                    setCommentsAutoLoad(false);
+                                                    if (targetCommentId) {
+                                                        setIgnoreTargetCommentAutoOpen(
+                                                            true,
+                                                        );
+                                                    }
+                                                }
+                                                return next;
+                                            })
+                                        }
+                                        radius='lg'
+                                        variant='flat'
+                                        className={`inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
+                                            showComments
+                                                ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <CommentIcon
+                                            className={`h-4 w-4 ${showComments ? 'text-cyan-700' : 'text-slate-500'}`}
+                                        />
+                                        <span>Comment</span>
+                                    </Button>
+                                </div>
+                                {allowCommenting &&
+                                (!replyTarget || !showComments) ? (
+                                    <form
+                                        className='flex gap-2'
+                                        onSubmit={(event) => {
+                                            event.preventDefault();
+                                            void onAddComment();
+                                        }}
+                                    >
+                                        <input
+                                            ref={commentInputRef}
+                                            value={commentInput}
                                             onChange={(event) =>
-                                                setCommentSortOrder(
-                                                    event.target
-                                                        .value as CommentSortOrder,
+                                                setCommentInput(
+                                                    event.target.value,
                                                 )
                                             }
-                                            className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
+                                            onKeyDown={(event) => {
+                                                if (event.key !== 'Enter')
+                                                    return;
+                                                if (
+                                                    event.nativeEvent
+                                                        .isComposing
+                                                )
+                                                    return;
+                                                event.preventDefault();
+                                                void onAddComment();
+                                            }}
+                                            placeholder='Write a comment'
+                                            className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
+                                        />
+                                        <Button
+                                            type='submit'
+                                            radius='lg'
+                                            color='primary'
+                                            className='text-xs font-semibold'
                                         >
-                                            <option value='recent'>
-                                                Recently added
-                                            </option>
-                                            <option value='oldest'>
-                                                Oldest first
-                                            </option>
-                                        </select>
-                                    </label>
-                                </div>
-                                {commentsLoading ? (
-                                    <div className='space-y-2'>
-                                        <div className='h-9 w-full animate-pulse rounded-xl bg-slate-200' />
-                                        <div className='h-9 w-5/6 animate-pulse rounded-xl bg-slate-200' />
-                                        <div className='h-9 w-2/3 animate-pulse rounded-xl bg-slate-200' />
-                                    </div>
-                                ) : comments.length === 0 ? (
-                                    <p className='text-xs text-slate-500'>
-                                        No comments yet.
-                                    </p>
-                                ) : (
-                                    <div className='space-y-2'>
-                                        {renderCommentNodes(commentTree)}
-                                    </div>
-                                )}
-                                {commentsHasMore ? (
+                                            Send
+                                        </Button>
+                                    </form>
+                                ) : null}
+                                {showComments ? (
                                     <div
-                                        ref={commentsAnchorRef}
-                                        className='h-2 w-full'
-                                        aria-hidden='true'
-                                    />
-                                ) : null}
-                                {commentsLoadingMore ? (
-                                    <p className='text-center text-xs text-slate-500'>
-                                        Loading more comments...
-                                    </p>
-                                ) : null}
-                                {commentsHasMore &&
-                                !commentsLoadingMore &&
-                                !commentsAutoLoad ? (
-                                    <button
-                                        type='button'
-                                        onClick={() => {
-                                            setCommentsAutoLoad(true);
-                                            void loadMoreComments();
-                                        }}
-                                        className='mx-auto block rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                        ref={commentsContainerRef}
+                                        className='space-y-2 rounded-2xl bg-slate-50 p-3'
                                     >
-                                        Show more comments
-                                    </button>
+                                        <div className='flex flex-wrap items-center justify-end gap-2'>
+                                            <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
+                                                <span>Sort</span>
+                                                <select
+                                                    value={commentSortOrder}
+                                                    onChange={(event) =>
+                                                        setCommentSortOrder(
+                                                            event.target
+                                                                .value as CommentSortOrder,
+                                                        )
+                                                    }
+                                                    className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
+                                                >
+                                                    <option value='recent'>
+                                                        Recently added
+                                                    </option>
+                                                    <option value='oldest'>
+                                                        Oldest first
+                                                    </option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                        {commentsLoading ? (
+                                            <div className='space-y-2'>
+                                                <div className='h-9 w-full animate-pulse rounded-xl bg-slate-200' />
+                                                <div className='h-9 w-5/6 animate-pulse rounded-xl bg-slate-200' />
+                                                <div className='h-9 w-2/3 animate-pulse rounded-xl bg-slate-200' />
+                                            </div>
+                                        ) : comments.length === 0 ? (
+                                            <p className='text-xs text-slate-500'>
+                                                No comments yet.
+                                            </p>
+                                        ) : (
+                                            <div className='space-y-2'>
+                                                {renderCommentNodes(commentTree)}
+                                            </div>
+                                        )}
+                                        {commentsHasMore ? (
+                                            <div
+                                                ref={commentsAnchorRef}
+                                                className='h-2 w-full'
+                                                aria-hidden='true'
+                                            />
+                                        ) : null}
+                                        {commentsLoadingMore ? (
+                                            <p className='text-center text-xs text-slate-500'>
+                                                Loading more comments...
+                                            </p>
+                                        ) : null}
+                                        {commentsHasMore &&
+                                        !commentsLoadingMore &&
+                                        !commentsAutoLoad ? (
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setCommentsAutoLoad(true);
+                                                    void loadMoreComments();
+                                                }}
+                                                className='mx-auto block rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                            >
+                                                Show more comments
+                                            </button>
+                                        ) : null}
+                                        <button
+                                            type='button'
+                                            onClick={() => {
+                                                setShowComments(false);
+                                                setReplyTarget(null);
+                                                setCommentsAutoLoad(false);
+                                                if (targetCommentId) {
+                                                    setIgnoreTargetCommentAutoOpen(
+                                                        true,
+                                                    );
+                                                }
+                                            }}
+                                            className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                        >
+                                            Hide all comments
+                                        </button>
+                                    </div>
                                 ) : null}
-                                <button
-                                    type='button'
-                                    onClick={() => {
-                                        setShowComments(false);
-                                        setReplyTarget(null);
-                                        setCommentsAutoLoad(false);
-                                        if (targetCommentId) {
-                                            setIgnoreTargetCommentAutoOpen(true);
-                                        }
-                                    }}
-                                    className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
-                                >
-                                    Hide all comments
-                                </button>
-                            </div>
+                            </>
                         ) : null}
-                    </>
+                        {status ? (
+                            <p className='text-xs text-slate-500'>{status}</p>
+                        ) : null}
+                    </div>
                 ) : null}
-                {status ? (
-                    <p className='text-xs text-slate-500'>{status}</p>
-                ) : null}
-            </div>
+            </CardBody>
             <ConfirmDialog
                 open={Boolean(confirmDeleteTarget)}
                 title={confirmDeleteTitle}
@@ -1554,6 +1593,6 @@ export function PostCard({
                     canNext={canNext}
                 />
             ) : null}
-        </article>
+        </Card>
     );
 }

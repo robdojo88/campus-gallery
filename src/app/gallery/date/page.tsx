@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { Card, CardBody, Chip } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
@@ -45,9 +46,14 @@ export default function DateGalleryPage() {
                     description='Auto-structured folders by year, month, and day for all captured media.'
                 />
                 {status ? (
-                    <p className='mb-4 text-sm text-slate-600'>{status}</p>
+                    <Card className='mb-4 border border-slate-200 bg-white'>
+                        <CardBody className='p-4 text-sm text-slate-600'>
+                            {status}
+                        </CardBody>
+                    </Card>
                 ) : null}
-                <section className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'>
+                <Card className='border border-slate-200 bg-white shadow-sm'>
+                    <CardBody className='p-5'>
                     <ul className='space-y-3'>
                         {grouped.map((item) => (
                             <li key={item.date}>
@@ -63,27 +69,39 @@ export default function DateGalleryPage() {
                                             {item.label}
                                         </p>
                                         {item.dominantEventName ? (
-                                            <p className='mt-2 inline-flex items-center rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-semibold text-cyan-800'>
+                                            <Chip
+                                                size='sm'
+                                                variant='flat'
+                                                className='mt-2 bg-cyan-100 text-[11px] font-semibold text-cyan-800'
+                                            >
                                                 Dominant Tag:{' '}
                                                 {item.dominantEventName}
                                                 {item.dominantEventCount
                                                     ? ` (${item.dominantEventCount})`
                                                     : ''}
-                                            </p>
+                                            </Chip>
                                         ) : (
-                                            <p className='mt-2 inline-flex items-center rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700'>
+                                            <Chip
+                                                size='sm'
+                                                variant='flat'
+                                                className='mt-2 bg-slate-200 text-[11px] font-semibold text-slate-700'
+                                            >
                                                 Dominant Tag: None
-                                            </p>
+                                            </Chip>
                                         )}
                                     </div>
-                                    <span className='rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white'>
+                                    <Chip
+                                        size='sm'
+                                        className='bg-slate-900 text-xs font-semibold text-white'
+                                    >
                                         {item.count} uploads
-                                    </span>
+                                    </Chip>
                                 </Link>
                             </li>
                         ))}
                     </ul>
-                </section>
+                    </CardBody>
+                </Card>
             </AppShell>
         </AuthGuard>
     );

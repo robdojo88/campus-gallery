@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Button, Card, CardBody, Chip, ScrollShadow } from '@heroui/react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { MainNav } from '@/components/layout/main-nav';
 import { OfflineSync } from '@/components/system/offline-sync';
@@ -86,66 +87,78 @@ function LeftSidebar({
     return (
         <aside className='hidden lg:block'>
             <div className='fixed top-20 w-[16%] space-y-4'>
-                <section className='rounded-2xl border border-slate-200 bg-white p-3 shadow-sm'>
-                    <p className='px-2 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
-                        Navigation
-                    </p>
-                    <nav className='space-y-1.5'>
-                        {visibleLinks.map((link) => {
-                            const active = isActive(pathname, link.href);
-                            return (
-                                <Link
-                                    key={link.href}
-                                    href={link.href}
-                                    className={`group flex items-center justify-between rounded-xl px-3 py-2.5 transition ${
-                                        active
-                                            ? 'bg-blue-50 ring-1 ring-blue-100'
-                                            : 'hover:bg-slate-50'
-                                    }`}
-                                >
-                                    <div className='flex min-w-0 items-center gap-2.5'>
-                                        <span
-                                            className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                                                active
-                                                    ? 'bg-blue-600'
-                                                    : 'bg-slate-300 group-hover:bg-slate-500'
-                                            }`}
-                                            aria-hidden='true'
-                                        />
-                                        <div className='min-w-0'>
-                                            <p
-                                                className={`truncate text-sm font-medium ${
+                <Card className='border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur'>
+                    <CardBody className='p-3'>
+                        <div className='mb-2 flex items-center justify-between px-2'>
+                            <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
+                                Navigation
+                            </p>
+                            {/* <Chip
+                                size='sm'
+                                variant='flat'
+                                className='h-5 bg-slate-100 text-[10px] font-semibold text-slate-600'
+                            >
+                                {visibleLinks.length}
+                            </Chip> */}
+                        </div>
+                        <nav className='space-y-1.5'>
+                            {visibleLinks.map((link) => {
+                                const active = isActive(pathname, link.href);
+                                return (
+                                    <Button
+                                        key={link.href}
+                                        as={Link}
+                                        href={link.href}
+                                        variant='flat'
+                                        radius='lg'
+                                        className={`h-auto w-full justify-start px-3 py-2.5 ${
+                                            active
+                                                ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+                                                : 'bg-transparent text-slate-700 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <div className='flex min-w-0 items-center gap-2.5 text-left'>
+                                            <span
+                                                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
                                                     active
-                                                        ? 'text-blue-700'
-                                                        : 'text-slate-700'
+                                                        ? 'bg-blue-600'
+                                                        : 'bg-slate-300'
                                                 }`}
-                                            >
-                                                {link.label}
-                                            </p>
-                                            <p className='truncate text-[11px] text-slate-500'>
-                                                {link.hint}
-                                            </p>
+                                                aria-hidden='true'
+                                            />
+                                            <div className='min-w-0'>
+                                                <p className='truncate text-sm font-medium'>
+                                                    {link.label}
+                                                </p>
+                                                <p className='truncate text-[11px] text-slate-500'>
+                                                    {link.hint}
+                                                </p>
+                                            </div>
                                         </div>
-                                    </div>
-                                </Link>
-                            );
-                        })}
-                    </nav>
-                </section>
+                                    </Button>
+                                );
+                            })}
+                        </nav>
+                    </CardBody>
+                </Card>
 
-                <section className='rounded-2xl border border-slate-200 bg-white p-3 shadow-sm'>
-                    <p className='px-2 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
-                        Quick Actions
-                    </p>
-                    <div className='grid grid-cols-1 gap-2'>
-                        <Link
+                <Card className='border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur'>
+                    <CardBody className='p-3'>
+                        <p className='px-2 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
+                            Quick Actions
+                        </p>
+                        <Button
+                            as={Link}
                             href='/camera'
-                            className='rounded-xl bg-blue-600 px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-blue-500'
+                            color='primary'
+                            variant='solid'
+                            radius='lg'
+                            className='w-full font-semibold'
                         >
                             Capture Now
-                        </Link>
-                    </div>
-                </section>
+                        </Button>
+                    </CardBody>
+                </Card>
             </div>
         </aside>
     );
@@ -513,132 +526,202 @@ function RightSidebar({ role }: { role: UserRole | null }) {
     return (
         <aside className='hidden xl:block'>
             <div className='fixed top-20 w-[22%]'>
-                <section className='max-h-[calc(100vh-6rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'>
-                    <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
-                        Trending Posts
-                    </p>
-                    {loading ? (
-                        <div className='mt-3 space-y-2'>
-                            <div className='h-14 animate-pulse rounded-xl bg-slate-100' />
-                            <div className='h-14 animate-pulse rounded-xl bg-slate-100' />
-                            <div className='h-14 animate-pulse rounded-xl bg-slate-100' />
-                        </div>
-                    ) : null}
-                    {!loading && status ? (
-                        <p className='mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600'>
-                            {status}
-                        </p>
-                    ) : null}
-                    {!loading && items.length > 0 ? (
-                        <div className='mt-3 space-y-2.5'>
-                            {items.map((item) => {
-                                const previewIndex =
-                                    previewIndexByKey[item.key] ?? 0;
-                                const previewImage =
-                                    item.previewImages[previewIndex] ??
-                                    item.previewImages[0];
-                                return (
-                                    <Link
-                                        key={item.key}
-                                        href={item.href}
-                                        className='group block rounded-xl border border-slate-200 bg-slate-50 p-3 transition hover:border-blue-200 hover:bg-blue-50/50'
-                                    >
-                                        <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
-                                            {item.source}
-                                        </p>
-                                        <p className='mt-1 line-clamp-2 text-sm font-medium text-slate-800'>
-                                            {item.title}
-                                        </p>
-                                        {previewImage ? (
-                                            <div className='relative mt-2 h-48 overflow-hidden rounded-lg bg-slate-100'>
-                                                <AnimatePresence
-                                                    mode='wait'
-                                                    initial={false}
-                                                >
-                                                    <motion.div
-                                                        key={`${item.key}-${previewIndex}-${previewImage}`}
-                                                        initial={{
-                                                            opacity: 0,
-                                                            scale: 1.02,
-                                                        }}
-                                                        animate={{
-                                                            opacity: 1,
-                                                            scale: 1,
-                                                        }}
-                                                        exit={{
-                                                            opacity: 0,
-                                                            scale: 0.98,
-                                                        }}
-                                                        transition={{
-                                                            duration: 0.18,
-                                                            ease: 'easeOut',
-                                                        }}
-                                                        className='absolute inset-0'
-                                                    >
-                                                        <Image
-                                                            src={previewImage}
-                                                            alt={`${item.source} trending preview`}
-                                                            fill
-                                                            className='object-cover transition-transform duration-500 group-hover:scale-[1.03]'
-                                                            sizes='280px'
-                                                        />
-                                                    </motion.div>
-                                                </AnimatePresence>
-                                                {item.previewImages.length >
-                                                1 ? (
-                                                    <span className='absolute bottom-1.5 right-1.5 rounded bg-slate-900/75 px-1.5 py-0.5 text-[10px] font-semibold text-white'>
-                                                        {(previewIndex %
-                                                            item.previewImages
-                                                                .length) +
-                                                            1}
-                                                        /
-                                                        {
-                                                            item.previewImages
-                                                                .length
-                                                        }
-                                                    </span>
-                                                ) : null}
-                                            </div>
-                                        ) : null}
-                                        <p className='mt-2 text-[11px] text-slate-600'>
-                                            {item.uniqueInteractionUsers} unique
-                                            users | {item.uniqueCommentUsers}{' '}
-                                            commenters | {item.uniqueLikeUsers}{' '}
-                                            likers
-                                        </p>
-                                    </Link>
-                                );
-                            })}
-                        </div>
-                    ) : null}
-                    {!loading && !limitedVisitorMode && hashtags.length > 0 ? (
-                        <div className='mt-4 border-t border-slate-200 pt-3'>
-                            <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
-                                Trending Hashtags
+                <Card className='max-h-[calc(100vh-6rem)] border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur'>
+                    <CardBody className='p-0'>
+                        <div className='sticky top-0 z-20 border-b border-slate-200/90 bg-white/95 px-4 py-3 backdrop-blur'>
+                            <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
+                                Trending Posts
                             </p>
-                            <div className='mt-2 flex flex-wrap gap-1.5'>
-                                {hashtags.map((item) => (
-                                    <Link
-                                        key={item.tag}
-                                        href={`/trending/${encodeURIComponent(item.tag.slice(1))}`}
-                                        className='rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-200'
-                                    >
-                                        {item.tag}{' '}
-                                        <span className='text-slate-500'>
-                                            {item.count} users
-                                        </span>
-                                    </Link>
-                                ))}
-                            </div>
+                            <p className='mt-1 text-[11px] text-slate-500'>
+                                Ranked by unique users interacting
+                            </p>
                         </div>
-                    ) : null}
-                </section>
+
+                        <ScrollShadow
+                            hideScrollBar
+                            className='max-h-[calc(100vh-10.5rem)] px-4 py-3'
+                        >
+                            {loading ? (
+                                <div className='space-y-2'>
+                                    <div className='h-14 animate-pulse rounded-xl bg-slate-100' />
+                                    <div className='h-14 animate-pulse rounded-xl bg-slate-100' />
+                                    <div className='h-14 animate-pulse rounded-xl bg-slate-100' />
+                                </div>
+                            ) : null}
+                            {!loading && status ? (
+                                <p className='rounded-xl bg-slate-50 p-3 text-sm text-slate-600'>
+                                    {status}
+                                </p>
+                            ) : null}
+                            {!loading && items.length > 0 ? (
+                                <div className='space-y-2.5'>
+                                    {items.map((item, index) => {
+                                        const previewIndex =
+                                            previewIndexByKey[item.key] ?? 0;
+                                        const previewImage =
+                                            item.previewImages[previewIndex] ??
+                                            item.previewImages[0];
+                                        return (
+                                            <motion.div
+                                                key={item.key}
+                                                initial={{ opacity: 0, y: 8 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{
+                                                    duration: 0.2,
+                                                    delay: index * 0.04,
+                                                    ease: 'easeOut',
+                                                }}
+                                            >
+                                                <Link
+                                                    href={item.href}
+                                                    className='group block'
+                                                >
+                                                    <Card className='border border-slate-200 bg-slate-50/80 transition-colors group-hover:border-blue-200 group-hover:bg-blue-50/50'>
+                                                        <CardBody className='p-3'>
+                                                            <Chip
+                                                                size='sm'
+                                                                variant='flat'
+                                                                className='h-5 bg-slate-200/70 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700'
+                                                            >
+                                                                {item.source}
+                                                            </Chip>
+                                                            <p className='mt-1 line-clamp-2 text-sm font-medium text-slate-800'>
+                                                                {item.title}
+                                                            </p>
+                                                            {previewImage ? (
+                                                                <div className='relative mt-2 h-48 overflow-hidden rounded-lg bg-slate-100'>
+                                                                    <AnimatePresence
+                                                                        mode='wait'
+                                                                        initial={
+                                                                            false
+                                                                        }
+                                                                    >
+                                                                        <motion.div
+                                                                            key={`${item.key}-${previewIndex}-${previewImage}`}
+                                                                            initial={{
+                                                                                opacity: 0,
+                                                                                scale: 1.02,
+                                                                            }}
+                                                                            animate={{
+                                                                                opacity: 1,
+                                                                                scale: 1,
+                                                                            }}
+                                                                            exit={{
+                                                                                opacity: 0,
+                                                                                scale: 0.98,
+                                                                            }}
+                                                                            transition={{
+                                                                                duration: 0.18,
+                                                                                ease: 'easeOut',
+                                                                            }}
+                                                                            className='absolute inset-0'
+                                                                        >
+                                                                            <Image
+                                                                                src={
+                                                                                    previewImage
+                                                                                }
+                                                                                alt={`${item.source} trending preview`}
+                                                                                fill
+                                                                                className='object-cover transition-transform duration-500 group-hover:scale-[1.03]'
+                                                                                sizes='280px'
+                                                                            />
+                                                                        </motion.div>
+                                                                    </AnimatePresence>
+                                                                    {item
+                                                                        .previewImages
+                                                                        .length >
+                                                                    1 ? (
+                                                                        <span className='absolute bottom-1.5 right-1.5 rounded bg-slate-900/75 px-1.5 py-0.5 text-[10px] font-semibold text-white'>
+                                                                            {(previewIndex %
+                                                                                item
+                                                                                    .previewImages
+                                                                                    .length) +
+                                                                                1}
+                                                                            /
+                                                                            {
+                                                                                item
+                                                                                    .previewImages
+                                                                                    .length
+                                                                            }
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            ) : null}
+                                                            <div className='mt-2 flex flex-wrap gap-1.5'>
+                                                                <Chip
+                                                                    size='sm'
+                                                                    variant='flat'
+                                                                    className='h-5 bg-blue-100 text-[10px] font-semibold text-blue-700'
+                                                                >
+                                                                    {
+                                                                        item.uniqueInteractionUsers
+                                                                    }{' '}
+                                                                    users
+                                                                </Chip>
+                                                                <Chip
+                                                                    size='sm'
+                                                                    variant='flat'
+                                                                    className='h-5 bg-cyan-100 text-[10px] font-semibold text-cyan-700'
+                                                                >
+                                                                    {
+                                                                        item.uniqueCommentUsers
+                                                                    }{' '}
+                                                                    commenters
+                                                                </Chip>
+                                                                <Chip
+                                                                    size='sm'
+                                                                    variant='flat'
+                                                                    className='h-5 bg-emerald-100 text-[10px] font-semibold text-emerald-700'
+                                                                >
+                                                                    {
+                                                                        item.uniqueLikeUsers
+                                                                    }{' '}
+                                                                    likers
+                                                                </Chip>
+                                                            </div>
+                                                        </CardBody>
+                                                    </Card>
+                                                </Link>
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
+                            ) : null}
+                            {!loading &&
+                            !limitedVisitorMode &&
+                            hashtags.length > 0 ? (
+                                <div className='mt-4 border-t border-slate-200 pt-3'>
+                                    <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
+                                        Trending Hashtags
+                                    </p>
+                                    <div className='mt-2 flex flex-wrap gap-1.5'>
+                                        {hashtags.map((item) => (
+                                            <Link
+                                                key={item.tag}
+                                                href={`/trending/${encodeURIComponent(item.tag.slice(1))}`}
+                                            >
+                                                <Chip
+                                                    size='sm'
+                                                    variant='flat'
+                                                    className='cursor-pointer bg-slate-100 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-200'
+                                                >
+                                                    {item.tag} - {item.count}{' '}
+                                                    users
+                                                </Chip>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </ScrollShadow>
+                    </CardBody>
+                </Card>
             </div>
         </aside>
     );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+function AppShellContent({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const [role, setRole] = useState<UserRole | null>(null);
     const [isSuspended, setIsSuspended] = useState(false);
@@ -654,14 +737,17 @@ export function AppShell({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         let mounted = true;
+        const cachedRole = getCachedRole();
+
         void getCurrentUserProfile()
             .then((profile) => {
                 if (!mounted) return;
-                setRole(profile?.role ?? getCachedRole());
+                setRole(profile?.role ?? cachedRole ?? null);
                 setIsSuspended(profile?.isSuspended === true);
             })
             .catch(() => {
                 if (!mounted) return;
+                setRole((previous) => previous ?? cachedRole ?? null);
                 setIsSuspended(false);
             });
         return () => {
@@ -693,4 +779,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
         </div>
     );
+}
+
+export function RootAppShell({ children }: { children: ReactNode }) {
+    return <AppShellContent>{children}</AppShellContent>;
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+    return <>{children}</>;
 }

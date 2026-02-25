@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Button, Card, CardBody } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { FeedLoader } from '@/components/feed/feed-loader';
 import { AppShell } from '@/components/layout/app-shell';
@@ -187,9 +188,11 @@ export default function FeedPage() {
             <AppShell>
                 {loading ? <FeedLoader count={3} /> : null}
                 {!loading && status ? (
-                    <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
-                        {status}
-                    </p>
+                    <Card className='mb-4 border border-slate-200 bg-white'>
+                        <CardBody className='p-4 text-sm text-slate-600'>
+                            {status}
+                        </CardBody>
+                    </Card>
                 ) : null}
                 {!loading && campusPosts.length > 0 ? (
                     <div className='mx-auto w-full max-w-3xl space-y-4'>
@@ -221,16 +224,17 @@ export default function FeedPage() {
                             className='h-2 w-full'
                             aria-hidden='true'
                         />
-                        <button
-                            type='button'
+                        <Button
                             onClick={() => void loadMore()}
-                            disabled={loadingMore}
-                            className='w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
+                            isDisabled={loadingMore}
+                            variant='bordered'
+                            radius='lg'
+                            className='w-full font-semibold text-slate-700'
                         >
                             {loadingMore
                                 ? 'Loading more posts...'
                                 : 'See more posts'}
-                        </button>
+                        </Button>
                         {loadingMore ? <FeedLoader count={2} compact /> : null}
                     </div>
                 ) : null}

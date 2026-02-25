@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Card, CardBody, Chip } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
@@ -58,19 +59,37 @@ export default function EventGalleryPage() {
                     title='Event-Based Gallery'
                     description='Admin-managed event folders where members can assign captures during upload.'
                 />
-                {status ? <p className='mb-4 text-sm text-slate-600'>{status}</p> : null}
+                {status ? (
+                    <Card className='mb-4 border border-slate-200 bg-white'>
+                        <CardBody className='p-4 text-sm text-slate-600'>
+                            {status}
+                        </CardBody>
+                    </Card>
+                ) : null}
                 <section className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
                     {events.map((event) => (
-                        <article
+                        <Card
                             key={event.id}
                             id={`event-${event.id}`}
                             data-event-id={event.id}
-                            className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
+                            className='border border-slate-200 bg-white shadow-sm'
                         >
-                            <h2 className='text-lg font-bold'>{event.name}</h2>
-                            <p className='mt-2 text-sm text-slate-600'>{event.description}</p>
-                            <p className='mt-4 text-sm font-semibold text-cyan-700'>{event.count} assigned captures</p>
-                        </article>
+                            <CardBody className='p-5'>
+                                <h2 className='text-lg font-bold'>
+                                    {event.name}
+                                </h2>
+                                <p className='mt-2 text-sm text-slate-600'>
+                                    {event.description}
+                                </p>
+                                <Chip
+                                    size='sm'
+                                    variant='flat'
+                                    className='mt-4 w-fit bg-cyan-100 text-xs font-semibold text-cyan-700'
+                                >
+                                    {event.count} assigned captures
+                                </Chip>
+                            </CardBody>
+                        </Card>
                     ))}
                 </section>
             </AppShell>

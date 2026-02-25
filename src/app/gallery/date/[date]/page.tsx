@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { Button, Card, CardBody, Chip } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -237,37 +238,52 @@ export default function DateFolderDetailPage() {
                     action={
                         <div className='flex flex-wrap items-center justify-end gap-2'>
                             {role === 'admin' ? (
-                                <button
-                                    type='button'
+                                <Button
                                     onClick={() => setConfirmDownloadOpen(true)}
-                                    disabled={downloadingAll || images.length === 0}
-                                    className='rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-700 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60'
+                                    isDisabled={
+                                        downloadingAll || images.length === 0
+                                    }
+                                    variant='flat'
+                                    color='primary'
+                                    className='font-semibold'
                                 >
                                     {downloadingAll
                                         ? 'Downloading...'
                                         : 'Download All Images'}
-                                </button>
+                                </Button>
                             ) : null}
-                            <Link
+                            <Button
+                                as={Link}
                                 href='/gallery/date'
-                                className='rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+                                variant='bordered'
+                                className='font-semibold text-slate-700'
                             >
                                 Back to Date Folders
-                            </Link>
+                            </Button>
                         </div>
                     }
                 />
 
-                {status ? <p className='mb-4 text-sm text-slate-600'>{status}</p> : null}
+                {status ? (
+                    <Card className='mb-4 border border-slate-200 bg-white'>
+                        <CardBody className='p-4 text-sm text-slate-600'>
+                            {status}
+                        </CardBody>
+                    </Card>
+                ) : null}
                 {downloadStatus ? (
-                    <p className='mb-4 text-sm text-slate-600'>{downloadStatus}</p>
+                    <Card className='mb-4 border border-slate-200 bg-white'>
+                        <CardBody className='p-4 text-sm text-slate-600'>
+                            {downloadStatus}
+                        </CardBody>
+                    </Card>
                 ) : null}
 
                 <section className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
                     {images.map((item, index) => (
-                        <article
+                        <Card
                             key={item.id}
-                            className='overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm'
+                            className='overflow-hidden border border-slate-200 bg-white shadow-sm'
                         >
                             <button
                                 type='button'
@@ -276,20 +292,26 @@ export default function DateFolderDetailPage() {
                             >
                                 <Image src={item.imageUrl} alt={`Capture by ${item.authorName}`} fill className='object-cover' />
                                 <div className='absolute left-2 top-2 flex flex-wrap items-center gap-1'>
-                                    <span className='rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white'>
+                                    <Chip
+                                        size='sm'
+                                        className='bg-black/70 text-[11px] font-semibold text-white'
+                                    >
                                         {item.authorName}
-                                    </span>
+                                    </Chip>
                                     {item.eventName ? (
-                                        <span className='rounded-full bg-cyan-700/90 px-2 py-1 text-[11px] font-semibold text-white'>
+                                        <Chip
+                                            size='sm'
+                                            className='bg-cyan-700/90 text-[11px] font-semibold text-white'
+                                        >
                                             {item.eventName}
-                                        </span>
+                                        </Chip>
                                     ) : null}
                                 </div>
                                 <span className='absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-2 text-[11px] text-white'>
                                     {item.capturedAt}
                                 </span>
                             </button>
-                        </article>
+                        </Card>
                     ))}
                 </section>
 

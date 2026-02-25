@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Card, CardBody, Chip } from '@heroui/react';
 
 type PopperTone = 'success' | 'error' | 'info';
 
@@ -49,15 +50,25 @@ export function StatusPopper({
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -10, scale: 0.98 }}
                         transition={{ duration: 0.2, ease: 'easeOut' }}
-                        className={`pointer-events-auto w-full max-w-sm rounded-2xl border px-4 py-3 shadow-lg ${toneClassName(tone)}`}
+                        className='pointer-events-auto w-full max-w-sm'
                         role='status'
                         aria-live='polite'
                     >
-                        <p className='text-sm font-semibold'>{message}</p>
+                        <Card className={`border shadow-lg ${toneClassName(tone)}`}>
+                            <CardBody className='flex flex-row items-center gap-2 px-4 py-3'>
+                                <Chip
+                                    size='sm'
+                                    variant='flat'
+                                    className='bg-white/60 text-[10px] font-semibold uppercase'
+                                >
+                                    {tone}
+                                </Chip>
+                                <p className='text-sm font-semibold'>{message}</p>
+                            </CardBody>
+                        </Card>
                     </motion.div>
                 </div>
             ) : null}
         </AnimatePresence>
     );
 }
-

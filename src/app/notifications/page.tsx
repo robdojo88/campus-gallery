@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Card, CardBody, Chip, Skeleton } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
@@ -221,14 +222,16 @@ function NotificationSkeleton({ count = 3 }: { count?: number }) {
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: index * 0.04 }}
-                    className='overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm'
+                    className='w-full overflow-hidden'
                 >
-                    <div className='space-y-2'>
-                        <div className='h-4 w-40 animate-pulse rounded bg-slate-200' />
-                        <div className='h-3 w-full animate-pulse rounded bg-slate-100' />
-                        <div className='h-3 w-2/3 animate-pulse rounded bg-slate-100' />
-                        <div className='h-3 w-28 animate-pulse rounded bg-slate-100' />
-                    </div>
+                    <Card className='w-full border border-slate-200 bg-white shadow-sm'>
+                        <CardBody className='space-y-2 p-4'>
+                            <Skeleton className='h-4 w-40 rounded' />
+                            <Skeleton className='h-3 w-full rounded' />
+                            <Skeleton className='h-3 w-2/3 rounded' />
+                            <Skeleton className='h-3 w-28 rounded' />
+                        </CardBody>
+                    </Card>
                 </motion.article>
             ))}
         </section>
@@ -373,7 +376,7 @@ export default function NotificationsPage() {
                         ? group.actorIdSet.size
                         : group.actorNameById.size > 0
                           ? group.actorNameById.size
-                        : group.notificationIds.length,
+                          : group.notificationIds.length,
                 actorAvatarUrl: group.actorAvatarUrl,
                 isAnonymous: group.isAnonymous,
                 unread: group.unread,
@@ -571,38 +574,33 @@ export default function NotificationsPage() {
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
-                {/* <PageHeader
+                <PageHeader
                     eyebrow='Account'
                     title='Notifications'
                     description='Realtime alerts for likes, comments, new events, and key activity across Ripple.'
                     action={
-                        <button
-                            type='button'
+                        <Button
                             onClick={() => void onMarkAllRead()}
-                            disabled={markingAll || unreadCount === 0}
-                            className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                            isDisabled={markingAll || unreadCount === 0}
+                            color='primary'
+                            variant='solid'
+                            className='font-semibold'
                         >
                             {markingAll ? 'Marking...' : 'Mark All Read'}
-                        </button>
+                        </Button>
                     }
-                /> */}
-                <button
-                    type='button'
-                    onClick={() => void onMarkAllRead()}
-                    disabled={markingAll || unreadCount === 0}
-                    className='rounded-xl bg-slate-900 px-3 py-2 mb-2 w-full text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
-                >
-                    {markingAll ? 'Marking...' : 'Mark All Read'}
-                </button>
+                />
                 {loading ? <NotificationSkeleton count={4} /> : null}
                 {!loading && status ? (
-                    <p className='rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
-                        {status}
-                    </p>
+                    <Card className='border border-slate-200 bg-white'>
+                        <CardBody className='p-4 text-sm text-slate-600'>
+                            {status}
+                        </CardBody>
+                    </Card>
                 ) : null}
 
                 {!loading && groupedItems.length > 0 ? (
-                    <section className='space-y-3'>
+                    <section className='w-full space-y-3'>
                         {groupedItems.map((group) => {
                             const unread = group.unread;
                             const clickable = Boolean(group.href);
@@ -615,37 +613,19 @@ export default function NotificationsPage() {
                             );
 
                             return (
-                                <article
+                                <Card
                                     key={group.key}
-                                    onClick={
+                                    isPressable={clickable}
+                                    onPress={
                                         group.href
-                                            ? () => {
+                                            ? () =>
                                                   onOpenGroup(
                                                       group,
                                                       group.href as string,
-                                                  );
-                                              }
+                                                  )
                                             : undefined
                                     }
-                                    onKeyDown={
-                                        group.href
-                                            ? (event) => {
-                                                  if (
-                                                      event.key === 'Enter' ||
-                                                      event.key === ' '
-                                                  ) {
-                                                      event.preventDefault();
-                                                      onOpenGroup(
-                                                          group,
-                                                          group.href as string,
-                                                      );
-                                                  }
-                                              }
-                                            : undefined
-                                    }
-                                    role={clickable ? 'button' : undefined}
-                                    tabIndex={clickable ? 0 : undefined}
-                                    className={`rounded-2xl border p-4 shadow-sm transition ${
+                                    className={`w-full border shadow-sm transition ${
                                         unread
                                             ? 'border-cyan-200 bg-cyan-50/70'
                                             : 'border-slate-200 bg-white'
@@ -655,10 +635,45 @@ export default function NotificationsPage() {
                                             : ''
                                     }`}
                                 >
-                                    <div className='flex items-start gap-3'>
-                                        {showActorVisual ? (
-                                            group.isAnonymous ? (
-                                                <span className='grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black text-white'>
+                                    <CardBody className='min-h-[104px] p-4'>
+                                        <div className='flex h-full items-start gap-3'>
+                                            {showActorVisual ? (
+                                                group.isAnonymous ? (
+                                                    <span className='grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black text-white'>
+                                                        <svg
+                                                            viewBox='0 0 24 24'
+                                                            aria-hidden='true'
+                                                            className='h-5 w-5'
+                                                            fill='none'
+                                                            stroke='currentColor'
+                                                            strokeWidth='2'
+                                                            strokeLinecap='round'
+                                                            strokeLinejoin='round'
+                                                        >
+                                                            <circle
+                                                                cx='12'
+                                                                cy='8'
+                                                                r='4'
+                                                            />
+                                                            <path d='M5 20a7 7 0 0 1 14 0' />
+                                                        </svg>
+                                                    </span>
+                                                ) : (
+                                                    <span className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                                                        <Image
+                                                            src={
+                                                                group.actorAvatarUrl ||
+                                                                ACTOR_AVATAR_FALLBACK
+                                                            }
+                                                            alt='Actor avatar'
+                                                            fill
+                                                            className='object-cover'
+                                                            sizes='40px'
+                                                        />
+                                                    </span>
+                                                )
+                                            ) : (
+                                                <span className='grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500'>
                                                     <svg
                                                         viewBox='0 0 24 24'
                                                         aria-hidden='true'
@@ -669,62 +684,39 @@ export default function NotificationsPage() {
                                                         strokeLinecap='round'
                                                         strokeLinejoin='round'
                                                     >
-                                                        <circle
-                                                            cx='12'
-                                                            cy='8'
-                                                            r='4'
-                                                        />
-                                                        <path d='M5 20a7 7 0 0 1 14 0' />
+                                                        <path d='M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5' />
+                                                        <path d='M9 17a3 3 0 0 0 6 0' />
                                                     </svg>
                                                 </span>
-                                            ) : (
-                                                <span className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
-                                                    <Image
-                                                        src={
-                                                            group.actorAvatarUrl ||
-                                                            ACTOR_AVATAR_FALLBACK
-                                                        }
-                                                        alt='Actor avatar'
-                                                        fill
-                                                        className='object-cover'
-                                                        sizes='40px'
+                                            )}
+
+                                            <div className='min-w-0 flex-1 self-stretch'>
+                                                <div className='h-10 overflow-hidden'>
+                                                    <p className='line-clamp-2 text-sm font-semibold leading-5 text-slate-900 [mask-image:linear-gradient(180deg,#000_72%,transparent)] [-webkit-mask-image:linear-gradient(180deg,#000_72%,transparent)]'>
+                                                        {message}
+                                                    </p>
+                                                </div>
+                                                <p className='mt-2 text-xs text-slate-500'>
+                                                    {relativeLabel}
+                                                </p>
+                                            </div>
+
+                                            <div className='flex min-w-11 items-start justify-end'>
+                                                {unread ? (
+                                                    <Chip
+                                                        size='sm'
+                                                        variant='flat'
+                                                        className='h-5 bg-blue-100 text-[10px] font-bold text-blue-700'
+                                                    >
+                                                        New
+                                                    </Chip>
+                                                ) : (
+                                                    <span
+                                                        className='h-5 w-10'
+                                                        aria-hidden='true'
                                                     />
-                                                </span>
-                                            )
-                                        ) : (
-                                            <span className='grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500'>
-                                                <svg
-                                                    viewBox='0 0 24 24'
-                                                    aria-hidden='true'
-                                                    className='h-5 w-5'
-                                                    fill='none'
-                                                    stroke='currentColor'
-                                                    strokeWidth='2'
-                                                    strokeLinecap='round'
-                                                    strokeLinejoin='round'
-                                                >
-                                                    <path d='M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5' />
-                                                    <path d='M9 17a3 3 0 0 0 6 0' />
-                                                </svg>
-                                            </span>
-                                        )}
-
-                                        <div className='min-w-0 flex-1'>
-                                            <p className='text-sm font-semibold text-slate-900'>
-                                                {message}
-                                            </p>
-                                            <p className='mt-1 text-xs text-slate-500'>
-                                                {relativeLabel}
-                                            </p>
-                                        </div>
-
-                                        <div className='flex items-center gap-2'>
-                                            {unread ? (
-                                                <span className=' text-[10px] font-bold text-white'>
-                                                    <div className='h-3 w-3 rounded-full bg-[#5AA7FF]'></div>
-                                                </span>
-                                            ) : null}
-                                            {/* {unread ? (
+                                                )}
+                                                {/* {unread ? (
                                                 <button
                                                     type='button'
                                                     onClick={(event) => {
@@ -743,9 +735,10 @@ export default function NotificationsPage() {
                                                         : 'Mark Read'}
                                                 </button>
                                             ) : null} */}
+                                            </div>
                                         </div>
-                                    </div>
-                                </article>
+                                    </CardBody>
+                                </Card>
                             );
                         })}
                     </section>
@@ -758,16 +751,16 @@ export default function NotificationsPage() {
                             className='h-2 w-full'
                             aria-hidden='true'
                         />
-                        <button
-                            type='button'
+                        <Button
                             onClick={() => void loadMore()}
-                            disabled={loadingMore}
-                            className='w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
+                            isDisabled={loadingMore}
+                            variant='bordered'
+                            className='w-full font-semibold text-slate-700'
                         >
                             {loadingMore
                                 ? 'Loading previous notifications...'
                                 : 'See previous notifications'}
-                        </button>
+                        </Button>
                         {loadingMore ? (
                             <NotificationSkeleton count={2} />
                         ) : null}
@@ -777,4 +770,3 @@ export default function NotificationsPage() {
         </AuthGuard>
     );
 }
-

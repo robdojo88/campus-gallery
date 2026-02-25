@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Card, CardBody } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PostCard } from '@/components/feed/post-card';
@@ -23,7 +24,10 @@ export default function VisitorGalleryPage() {
                 setStatus(data.length === 0 ? 'No visitor posts yet.' : '');
             } catch (error) {
                 if (!mounted) return;
-                const message = error instanceof Error ? error.message : 'Failed to load visitor gallery.';
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to load visitor gallery.';
                 setStatus(message);
             }
         }
@@ -63,11 +67,13 @@ export default function VisitorGalleryPage() {
                     description='Feed-style visitor timeline. Like and comment interactions are hidden on this page.'
                 />
                 {effectiveStatus ? (
-                    <p className='mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600'>
-                        {effectiveStatus}
-                    </p>
+                    <Card className='mb-4 border border-slate-200 bg-white'>
+                        <CardBody className='p-4 text-sm text-slate-600'>
+                            {effectiveStatus}
+                        </CardBody>
+                    </Card>
                 ) : null}
-                <section className='mx-auto w-full max-w-3xl space-y-4'>
+                <section className='mx-auto w-full max-w-3xl space-y-3'>
                     {visitorPosts.map((post) => (
                         <PostCard
                             key={`${post.id}-${post.likes}-${post.comments}`}

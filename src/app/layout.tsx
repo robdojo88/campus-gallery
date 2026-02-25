@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { DM_Sans, Space_Grotesk } from 'next/font/google';
+import { ShellRouter } from '@/components/layout/shell-router';
+import { HeroProvider } from '@/components/providers/heroui-provider';
 import './globals.css';
 
 const bodyFont = DM_Sans({
@@ -50,7 +52,9 @@ export default function RootLayout({
                 suppressHydrationWarning
                 className={`${bodyFont.variable} ${headingFont.variable} min-h-screen bg-slate-100 text-slate-900 antialiased transition-colors`}
             >
-                {children}
+                <HeroProvider>
+                    <ShellRouter>{children}</ShellRouter>
+                </HeroProvider>
             </body>
         </html>
     );
