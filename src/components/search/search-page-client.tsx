@@ -82,7 +82,7 @@ export function SearchPageClient({ query }: { query: string }) {
                             ? `Results for "${normalizedQuery}"`
                             : 'Search'
                     }
-                    description='Find users, event tags, date folders, and matching post captions across Ripple.'
+                    description='Find users, event tags, date folders, and matching post captions across KATOL.'
                 />
 
                 {loading ? (
@@ -234,3 +234,4 @@ export function SearchPageClient({ query }: { query: string }) {
         </AuthGuard>
     );
 }
+

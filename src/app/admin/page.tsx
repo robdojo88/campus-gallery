@@ -47,7 +47,7 @@ export default function AdminPage() {
                 {/* <PageHeader
                     eyebrow='Admin'
                     title='Admin Dashboard'
-                    description='Central moderation and operations console for Ripple.'
+                    description='Central moderation and operations console for KATOL.'
                 /> */}
                 <section className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
                     {cards.map((card) => (
@@ -67,3 +67,4 @@ export default function AdminPage() {
         </AuthGuard>
     );
 }
+

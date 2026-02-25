@@ -10,12 +10,11 @@ export default function Home() {
                         Camera-first Social Platform
                     </p>
                     <h1 className='text-4xl font-bold tracking-tight md:text-5xl'>
-                        Ripple
+                        KATOL
                     </h1>
                     <p className='max-w-2xl text-base text-slate-600 md:text-lg'>
-                        Real-time, role-based, and offline-capable social
-                        sharing where every image is captured live from the
-                        website camera.
+                        Keep All Thoughts On Loop, where Spread the Spark. Light
+                        It. Post It.
                     </p>
                     <div className='flex flex-wrap gap-3'>
                         <Link

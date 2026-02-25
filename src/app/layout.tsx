@@ -15,8 +15,9 @@ const headingFont = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-    title: 'Ripple',
-    description: 'A camera-first real-time social platform.',
+    title: 'KATOL',
+    description:
+        'Keep All Thoughts On Loop, where Spread the Spark. Light It. Post It.',
     icons: {
         icon: [
             {

@@ -577,7 +577,7 @@ export default function NotificationsPage() {
                 <PageHeader
                     eyebrow='Account'
                     title='Notifications'
-                    description='Realtime alerts for likes, comments, new events, and key activity across Ripple.'
+                    description='Realtime alerts for likes, comments, new events, and key activity across KATOL.'
                     action={
                         <Button
                             onClick={() => void onMarkAllRead()}
@@ -770,3 +770,4 @@ export default function NotificationsPage() {
         </AuthGuard>
     );
 }
+

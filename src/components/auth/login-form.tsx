@@ -29,7 +29,7 @@ export function LoginForm() {
         return (
             <main className='mx-auto grid min-h-screen w-full max-w-md place-items-center px-4 py-8'>
                 <section className='w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm'>
-                    <h1 className='text-2xl font-bold'>Welcome to Ripple</h1>
+                    <h1 className='text-2xl font-bold'>Welcome to KATOL</h1>
                     <p className='mt-2 text-sm text-slate-600'>Do you already have an account?</p>
                     <div className='mt-6 grid gap-3'>
                         <button
@@ -85,3 +85,4 @@ export function LoginForm() {
         </main>
     );
 }
+

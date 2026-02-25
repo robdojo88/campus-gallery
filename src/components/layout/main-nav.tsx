@@ -762,20 +762,20 @@ export function MainNav({
 
     return (
         <header className='sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur'>
-            <div className='mx-auto hidden w-full max-w-[1480px] items-center gap-3 px-3 py-2 md:flex md:px-6 lg:px-8'>
+            <div className='hidden'>
                 <div className='flex min-w-0 items-center gap-3 md:w-[320px] lg:w-[360px]'>
                     {navigationDisabled ? (
                         <span className='inline-flex items-center gap-2 rounded-xl px-1 py-1 text-lg font-bold tracking-tight text-slate-900'>
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
                                     src='/spiral.png'
-                                    alt='Ripple'
+                                    alt='KATOL'
                                     fill
                                     className='object-cover'
                                     sizes='36px'
                                 />
                             </span>
-                            <span className='hidden sm:inline'>Ripple</span>
+                            <span className='hidden sm:inline'>KATOL</span>
                         </span>
                     ) : (
                         <Link
@@ -785,13 +785,13 @@ export function MainNav({
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
                                     src='/spiral.png'
-                                    alt='Ripple'
+                                    alt='KATOL'
                                     fill
                                     className='object-cover'
                                     sizes='36px'
                                 />
                             </span>
-                            <span className='hidden sm:inline'>Ripple</span>
+                            <span className='hidden sm:inline'>KATOL</span>
                         </Link>
                     )}
                     {navigationDisabled ? null : (
@@ -837,7 +837,7 @@ export function MainNav({
                                 }}
                                 placeholder='Search users, events, dates, posts...'
                                 className='w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-500'
-                                aria-label='Search Ripple'
+                                aria-label='Search KATOL'
                             />
                         </form>
                         {searchOpen ? (
@@ -1111,12 +1111,157 @@ export function MainNav({
                     )}
                 </div>
             </div>
-            <nav className='mx-auto flex w-full max-w-[1480px] items-center justify-between gap-1 overflow-hidden px-2 py-2 md:hidden md:px-6 lg:px-8'>
+            <nav className='mx-auto hidden w-full max-w-[1480px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-2 md:grid lg:px-8'>
+                <div className='flex items-center gap-2 justify-self-start rounded-2xl border border-slate-200/90 bg-white/80 px-2 py-1 shadow-sm backdrop-blur'>
+                    {mobileOverflowLinks.length > 0 ? (
+                        <button
+                            type='button'
+                            onClick={() =>
+                                setMobileMenuOpen((current) => !current)
+                            }
+                            aria-label='Open navigation'
+                            aria-expanded={mobileMenuOpen}
+                            className={`group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 ${
+                                mobileMenuOpen || mobileOverflowActive
+                                    ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
+                                    : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                            }`}
+                        >
+                            <svg
+                                viewBox='0 0 24 24'
+                                aria-hidden='true'
+                                className={`h-5 w-5 ${
+                                    mobileMenuOpen || mobileOverflowActive
+                                        ? 'text-blue-600'
+                                        : 'text-slate-600'
+                                }`}
+                                fill='none'
+                                stroke='currentColor'
+                                strokeWidth='2'
+                                strokeLinecap='round'
+                                strokeLinejoin='round'
+                            >
+                                <path d='M4 7h16M4 12h16M4 17h16' />
+                            </svg>
+                            <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+                                Menu
+                            </span>
+                        </button>
+                    ) : null}
+                    {navigationDisabled ? (
+                        <span className='group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-600'>
+                            <span className='relative h-8 w-8 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                                <Image
+                                    src='/spiral.png'
+                                    alt='KATOL'
+                                    fill
+                                    className='object-cover'
+                                    sizes='32px'
+                                />
+                            </span>
+                        </span>
+                    ) : (
+                        <Link
+                            href='/'
+                            aria-label='KATOL home'
+                            title='KATOL'
+                            className='group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                        >
+                            <span className='relative h-8 w-8 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                                <Image
+                                    src='/spiral.png'
+                                    alt='KATOL'
+                                    fill
+                                    className='object-cover'
+                                    sizes='32px'
+                                />
+                            </span>
+                            <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+                                Home
+                            </span>
+                        </Link>
+                    )}
+                </div>
+
+                <div className='flex items-center gap-1.5 justify-self-center rounded-2xl border border-slate-200/90 bg-white/80 px-2 py-1 shadow-sm backdrop-blur'>
+                    {mobilePrimaryLinks.map((link) => {
+                        const active = isLinkActive(pathname, link.href);
+                        return (
+                            <NavIconLink
+                                key={`desktop-${link.href}`}
+                                link={link}
+                                active={active}
+                            />
+                        );
+                    })}
+                </div>
+
+                <div className='flex items-center gap-2 justify-self-end rounded-2xl border border-slate-200/90 bg-white/80 px-2 py-1 shadow-sm backdrop-blur'>
+                    {!authResolved ? (
+                        <span
+                            className='h-10 w-10 rounded-full bg-slate-100 ring-2 ring-slate-200'
+                            aria-hidden='true'
+                        />
+                    ) : userId ? (
+                        <>
+                            {notificationsEnabled ? (
+                                <Link
+                                    href='/notifications'
+                                    aria-label='Notifications'
+                                    title='Notifications'
+                                    className={`group relative flex h-10 w-10 items-center justify-center rounded-xl border border-transparent transition-all duration-200 ${
+                                        pathname.startsWith('/notifications')
+                                            ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
+                                            : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                                    }`}
+                                >
+                                    <NotificationBell
+                                        active={pathname.startsWith(
+                                            '/notifications',
+                                        )}
+                                        unreadCount={unreadCount}
+                                    />
+                                    <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+                                        Notifications
+                                    </span>
+                                </Link>
+                            ) : null}
+                            <button
+                                ref={profileMenuDesktopButtonRef}
+                                type='button'
+                                onClick={() =>
+                                    setProfileMenuOpen((current) => !current)
+                                }
+                                className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
+                                aria-label='Open profile menu'
+                                aria-expanded={profileMenuOpen}
+                            >
+                                <Image
+                                    src={userAvatarUrl}
+                                    alt={`${userDisplayName} profile`}
+                                    fill
+                                    className='object-cover'
+                                    sizes='40px'
+                                />
+                            </button>
+                        </>
+                    ) : (
+                        <Link
+                            href='/login'
+                            className='rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100'
+                        >
+                            Login
+                        </Link>
+                    )}
+                </div>
+            </nav>
+
+            <nav className='mx-auto flex w-full max-w-[1480px] items-center justify-between gap-1 overflow-hidden px-2 py-2 md:hidden'>
                 {mobileOverflowLinks.length > 0 ? (
                     <button
                         type='button'
                         onClick={() => setMobileMenuOpen((current) => !current)}
-                        aria-label='Open more links'
+                        aria-label='Open navigation'
                         aria-expanded={mobileMenuOpen}
                         className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
                             mobileMenuOpen || mobileOverflowActive
@@ -1141,7 +1286,7 @@ export function MainNav({
                             <path d='M4 7h16M4 12h16M4 17h16' />
                         </svg>
                         <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
-                            More
+                            Menu
                         </span>
                     </button>
                 ) : null}
@@ -1150,7 +1295,7 @@ export function MainNav({
                         <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
                             <Image
                                 src='/spiral.png'
-                                alt='Ripple'
+                                alt='KATOL'
                                 fill
                                 className='object-cover'
                                 sizes='28px'
@@ -1160,14 +1305,14 @@ export function MainNav({
                 ) : (
                     <Link
                         href='/'
-                        aria-label='Ripple home'
-                        title='Ripple'
+                        aria-label='KATOL home'
+                        title='KATOL'
                         className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                     >
                         <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
                             <Image
                                 src='/spiral.png'
-                                alt='Ripple'
+                                alt='KATOL'
                                 fill
                                 className='object-cover'
                                 sizes='28px'
@@ -1250,7 +1395,7 @@ export function MainNav({
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.18, ease: 'easeOut' }}
-                        className='fixed inset-0 z-[180] md:hidden'
+                        className='fixed inset-0 z-[180]'
                     >
                         <motion.button
                             type='button'
@@ -1371,5 +1516,6 @@ export function MainNav({
         </header>
     );
 }
+
 
 
