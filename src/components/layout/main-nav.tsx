@@ -914,14 +914,14 @@ export function MainNav({
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL Galleria'
+                                    alt='KATOL Gallery'
                                     fill
                                     className='object-cover'
                                     sizes='36px'
                                 />
                             </span>
                             <span className='hidden sm:inline'>
-                                KATOL Galleria
+                                KATOL Gallery
                             </span>
                         </span>
                     ) : (
@@ -932,14 +932,14 @@ export function MainNav({
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL Galleria'
+                                    alt='KATOL Gallery'
                                     fill
                                     className='object-cover'
                                     sizes='36px'
                                 />
                             </span>
                             <span className='hidden sm:inline'>
-                                KATOL Galleria
+                                KATOL Gallery
                             </span>
                         </Link>
                     )}
@@ -990,7 +990,7 @@ export function MainNav({
                                     }}
                                     placeholder='Search users, events, dates, posts...'
                                     className='w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-500'
-                                    aria-label='Search KATOL Galleria'
+                                    aria-label='Search KATOL Gallery'
                                 />
                             </form>
                             {searchOpen ? (
@@ -1314,7 +1314,7 @@ export function MainNav({
                             <span className='relative h-8 w-8 overflow-hidden rounded-full'>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL Galleria'
+                                    alt='KATOL Gallery'
                                     fill
                                     className='object-cover'
                                     sizes='32px'
@@ -1324,14 +1324,14 @@ export function MainNav({
                     ) : (
                         <Link
                             href='/'
-                            aria-label='KATOL Galleria home'
-                            title='KATOL Galleria'
+                            aria-label='KATOL Gallery home'
+                            title='KATOL Gallery'
                             className='group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                         >
                             <span className='relative h-8 w-8 overflow-hidden rounded-full'>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL Galleria'
+                                    alt='KATOL Gallery'
                                     fill
                                     className='object-cover'
                                     sizes='32px'
@@ -1499,7 +1499,7 @@ export function MainNav({
                         <span className='relative h-7 w-7 overflow-hidden rounded-full'>
                             <Image
                                 src={spiralLogoSrc}
-                                alt='KATOL Galleria'
+                                alt='KATOL Gallery'
                                 fill
                                 className='object-cover'
                                 sizes='28px'
@@ -1509,14 +1509,14 @@ export function MainNav({
                 ) : (
                     <Link
                         href='/'
-                        aria-label='KATOL Galleria home'
-                        title='KATOL Galleria'
+                        aria-label='KATOL Gallery home'
+                        title='KATOL Gallery'
                         className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                     >
                         <span className='relative h-7 w-7 overflow-hidden rounded-full'>
                             <Image
                                 src={spiralLogoSrc}
-                                alt='KATOL Galleria'
+                                alt='KATOL Gallery'
                                 fill
                                 className='object-cover'
                                 sizes='28px'

@@ -10,7 +10,7 @@ export default function Home() {
                         Camera-first Social Platform
                     </p>
                     <h1 className='text-4xl font-bold tracking-tight md:text-5xl'>
-                        KATOL Galleria
+                        KATOL Gallery
                     </h1>
                     <p className='max-w-2xl text-base text-slate-600 md:text-lg'>
                         <strong>K</strong>eep <strong>A</strong>ll{' '}

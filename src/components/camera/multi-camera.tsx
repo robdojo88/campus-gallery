@@ -290,7 +290,7 @@ export function MultiCameraCapture() {
     }
 
     return (
-        <section className='-mx-4 -mt-6 grid gap-6 lg:mx-0 lg:mt-0 lg:grid-cols-[1.1fr_0.9fr]'>
+        <section className='-mt-6 grid gap-6 lg:mt-0 lg:grid-cols-[1.1fr_0.9fr]'>
             <article className='overflow-hidden bg-white shadow-sm lg:rounded-3xl lg:border lg:border-slate-200'>
                 <div className='relative h-[100dvh] bg-slate-900 lg:aspect-[4/3] lg:h-auto'>
                     <video

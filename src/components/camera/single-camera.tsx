@@ -337,9 +337,9 @@ export function SingleCameraCapture() {
     }
 
     return (
-        <section className='-mx-4 -mt-6 grid gap-6 lg:mx-0 lg:mt-0 lg:grid-cols-[1.2fr_0.8fr]'>
+        <section className='-mt-6 grid gap-6 lg:mt-0 lg:grid-cols-[1.2fr_0.8fr]'>
             <article className='overflow-hidden bg-white shadow-sm lg:rounded-3xl lg:border lg:border-slate-200'>
-                <div className='relative h-[100dvh] w-full bg-slate-900 lg:aspect-[4/3] lg:h-auto'>
+                <div className='relative h-[100dvh] w-full  bg-slate-900 lg:aspect-[4/3] lg:h-auto'>
                     <video
                         ref={videoRef}
                         autoPlay
@@ -347,7 +347,7 @@ export function SingleCameraCapture() {
                         muted
                         className='h-full w-full object-cover'
                     />
-                    <div className='absolute inset-x-0 bottom-0 lg:hidden'>
+                    <div className='absolute inset-x-0 bottom-0 lg:hidden '>
                         <div className='pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-900/90 via-slate-900/45 to-transparent' />
                         <div className='relative flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+5.9rem)]'>
                             <button
@@ -368,11 +368,11 @@ export function SingleCameraCapture() {
                                 </span>
                             </button>
                         </div>
-                        <p className='absolute left-4 bottom-[calc(env(safe-area-inset-bottom)+1.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white'>
+                        <p className='absolute left-4 bottom-[calc(env(safe-area-inset-bottom)+7.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white'>
                             Captured: {captures.length}
                         </p>
                         <span
-                            className={`absolute right-4 bottom-[calc(env(safe-area-inset-bottom)+1.35rem)] rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}
+                            className={`absolute right-4 bottom-[calc(env(safe-area-inset-bottom)+7.35rem)] rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}
                         >
                             {online ? 'Online' : 'Offline'}
                         </span>

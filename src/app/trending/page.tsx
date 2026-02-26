@@ -217,7 +217,7 @@ export default function TrendingOverviewPage() {
             <AppShell>
                 <div className='mx-auto w-full max-w-3xl'>
                     <PageHeader
-                        eyebrow='KATOL Galleria Trends'
+                        eyebrow='KATOL Gallery Trends'
                         title='Trending Post'
                         description='Top feed posts, hashtags, and Freedom Wall posts.'
                     />

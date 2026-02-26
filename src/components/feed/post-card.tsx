@@ -324,7 +324,7 @@ function Lightbox({
 
     return (
         <div
-            className='fixed inset-0 z-[100] bg-black/90 p-4 md:p-8'
+            className='fixed inset-0 z-[100] bg-black/90 p-0 lg:p-8'
             onClick={(event) => {
                 if (event.target === event.currentTarget) onClose();
             }}
@@ -452,7 +452,7 @@ function Lightbox({
                         alt={`Preview ${index + 1}`}
                         width={2200}
                         height={1600}
-                        className='max-h-[90vh] w-auto max-w-[94vw] object-contain transition-transform duration-200 rounded-2xl'
+                        className='max-h-[90vh] w-screen max-w-screen object-contain transition-transform duration-200 rounded-none lg:w-auto lg:max-w-[94vw] lg:rounded-2xl'
                         style={{ transform: `scale(${zoom})` }}
                         onLoad={() => setLoadedSrc(currentSrc)}
                         onError={() => setLoadedSrc(currentSrc)}

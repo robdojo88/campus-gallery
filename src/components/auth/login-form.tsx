@@ -45,7 +45,7 @@ export function LoginForm() {
                             className=' h-16 w-16 mb-2'
                         />
                         <h1 className='text-2xl font-bold'>
-                            Welcome to KATOL Galleria
+                            Welcome to KATOL Gallery
                         </h1>
                     </div>
 

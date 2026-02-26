@@ -1713,7 +1713,7 @@ export default function FreedomWallPage() {
                     ) : null}
                     {lightboxState && activeLightboxImage ? (
                         <div
-                            className='fixed inset-0 z-[100] bg-black/90 p-3 md:p-6'
+                            className='fixed inset-0 z-[100] bg-black/90 p-0 lg:p-6'
                             onClick={(event) => {
                                 if (event.target === event.currentTarget) {
                                     closePostImage();
@@ -1800,7 +1800,7 @@ export default function FreedomWallPage() {
                                     ) : null}
                                 </AnimatePresence>
                                 <div
-                                    className='max-h-full max-w-full'
+                                    className='max-h-full w-full max-w-full lg:w-auto'
                                     onClick={(event) => event.stopPropagation()}
                                 >
                                     <Image
@@ -1808,7 +1808,7 @@ export default function FreedomWallPage() {
                                         alt={`Freedom wall attachment ${activeLightboxIndex + 1}`}
                                         width={2200}
                                         height={1600}
-                                        className='max-h-[84vh] w-auto max-w-[94vw] object-contain'
+                                        className='max-h-[84vh] w-screen max-w-screen object-contain rounded-none lg:w-auto lg:max-w-[94vw] lg:rounded-2xl'
                                         onLoad={() =>
                                             setLightboxLoadedSrc(
                                                 activeLightboxImage,

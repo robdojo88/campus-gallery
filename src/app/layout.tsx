@@ -15,7 +15,7 @@ const headingFont = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-    title: 'KATOL Galleria',
+    title: 'KATOL Gallery',
     description:
         'Keep All Thoughts On Loop, where Spread the Spark. Light It. Post It.',
     icons: {
