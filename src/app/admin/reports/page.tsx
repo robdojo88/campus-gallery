@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AdminPanelShell } from '@/components/admin/admin-panel-shell';
 import { AppShell } from '@/components/layout/app-shell';
-import { PageHeader } from '@/components/ui/page-header';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
     deleteAllReviews,
@@ -19,6 +18,15 @@ import {
 import type { ContentReport, Review } from '@/lib/types';
 
 type ReportFilter = 'open' | 'resolved' | 'declined' | 'all';
+
+function toLocalDateKey(dateValue: string): string {
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
 
 function formatTargetLabel(report: ContentReport): string {
     if (report.targetType === 'feed_post') return 'Feed Post';
@@ -39,6 +47,7 @@ export default function AdminReportsPage() {
     >([]);
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState('Loading moderation queue...');
+    const [selectedDate, setSelectedDate] = useState('');
     const [busyId, setBusyId] = useState('');
     const [busyBulkDelete, setBusyBulkDelete] = useState(false);
     const [showDeleteAllFeedbackConfirm, setShowDeleteAllFeedbackConfirm] =
@@ -110,9 +119,30 @@ export default function AdminReportsPage() {
         };
     }, [highlightedReportId]);
 
+    const filteredReviews = useMemo(() => {
+        if (!selectedDate) return reviews;
+        return reviews.filter(
+            (review) => toLocalDateKey(review.createdAt) === selectedDate,
+        );
+    }, [reviews, selectedDate]);
+
+    const filteredReports = useMemo(() => {
+        if (!selectedDate) return reports;
+        return reports.filter((report) => {
+            const createdMatch =
+                toLocalDateKey(report.createdAt) === selectedDate;
+            const reviewedMatch = report.reviewedAt
+                ? toLocalDateKey(report.reviewedAt) === selectedDate
+                : false;
+            return createdMatch || reviewedMatch;
+        });
+    }, [reports, selectedDate]);
+
     const openReportsCount = useMemo(
-        () => reports.filter((report) => report.status === 'open').length,
-        [reports],
+        () =>
+            filteredReports.filter((report) => report.status === 'open')
+                .length,
+        [filteredReports],
     );
 
     async function onDeclineReport(reportId: string) {
@@ -214,6 +244,34 @@ export default function AdminReportsPage() {
                         </p>
                     ) : null}
 
+                    <section className='mb-4 rounded-[24px] border border-white/75 bg-white/80 p-4 shadow-[0_22px_48px_-36px_rgba(15,23,42,0.6)] backdrop-blur-xl'>
+                        <div className='flex flex-wrap items-center gap-3'>
+                            <p className='text-xs font-semibold uppercase tracking-[0.1em] text-slate-500'>
+                                Activity Date
+                            </p>
+                            <input
+                                type='date'
+                                value={selectedDate}
+                                onChange={(event) =>
+                                    setSelectedDate(event.target.value)
+                                }
+                                className='rounded-xl border border-white/85 bg-white/90 px-3 py-2 text-xs text-slate-700 outline-none focus:border-sky-300'
+                            />
+                            {selectedDate ? (
+                                <button
+                                    type='button'
+                                    onClick={() => setSelectedDate('')}
+                                    className='rounded-xl border border-white/85 bg-white/85 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-white'
+                                >
+                                    Clear Date
+                                </button>
+                            ) : null}
+                            <p className='text-xs text-slate-500'>
+                                Applies to feedback and report activity.
+                            </p>
+                        </div>
+                    </section>
+
                     <section className='mb-4 rounded-[30px] border border-white/75 bg-gradient-to-br from-white/90 via-white/82 to-slate-100/74 p-5 shadow-[0_30px_75px_-45px_rgba(15,23,42,0.6)] backdrop-blur-xl'>
                         <div className='flex flex-wrap items-center justify-between gap-3'>
                             <div>
@@ -245,13 +303,13 @@ export default function AdminReportsPage() {
                             <p className='mt-3 text-sm text-slate-500'>
                                 Loading...
                             </p>
-                        ) : reviews.length === 0 ? (
+                        ) : filteredReviews.length === 0 ? (
                             <p className='mt-3 text-sm text-slate-500'>
                                 No feedback available.
                             </p>
                         ) : (
                             <div className='mt-3 space-y-2'>
-                                {reviews.map((review) => (
+                                {filteredReviews.map((review) => (
                                     <motion.article
                                         key={review.id}
                                         initial={{ opacity: 0, y: 8 }}
@@ -328,13 +386,13 @@ export default function AdminReportsPage() {
                             <p className='mt-3 text-sm text-slate-500'>
                                 Loading...
                             </p>
-                        ) : reports.length === 0 ? (
+                        ) : filteredReports.length === 0 ? (
                             <p className='mt-3 text-sm text-slate-500'>
                                 No reports in this filter.
                             </p>
                         ) : (
                             <div className='mt-3 space-y-3'>
-                                {reports.map((report) => (
+                                {filteredReports.map((report) => (
                                     <article
                                         key={report.id}
                                         data-report-id={report.id}

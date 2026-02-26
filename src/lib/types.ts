@@ -107,7 +107,8 @@ export interface Review {
 
 export interface OfflineCapture {
     id: string;
-    imageDataUrl: string;
+    imageDataUrl?: string;
+    captures?: string[];
     caption?: string;
     visibility: Visibility;
     eventId?: string;

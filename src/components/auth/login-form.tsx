@@ -3,14 +3,19 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { signInWithGoogle } from '@/lib/supabase';
+import { signInWithGoogle, takePendingAuthNotice } from '@/lib/supabase';
 
 type LoginStep = 'choose' | 'existing';
 
 export function LoginForm() {
     const router = useRouter();
-    const [step, setStep] = useState<LoginStep>('choose');
-    const [status, setStatus] = useState('');
+    const [initialNotice] = useState<string | null>(() =>
+        takePendingAuthNotice(),
+    );
+    const [step, setStep] = useState<LoginStep>(() =>
+        initialNotice ? 'existing' : 'choose',
+    );
+    const [status, setStatus] = useState(initialNotice ?? '');
     const [pending, setPending] = useState(false);
 
     async function onGoogleLogin() {
@@ -19,7 +24,10 @@ export function LoginForm() {
         try {
             await signInWithGoogle();
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Google sign-in failed.';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Google sign-in failed.';
             setStatus(message);
             setPending(false);
         }
@@ -29,8 +37,22 @@ export function LoginForm() {
         return (
             <main className='mx-auto grid min-h-screen w-full max-w-md place-items-center px-4 py-8'>
                 <section className='w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm'>
-                    <h1 className='text-2xl font-bold'>Welcome to KATOL</h1>
-                    <p className='mt-2 text-sm text-slate-600'>Do you already have an account?</p>
+                    <div className='flex items-center gap-3 mb-4 mx-auto w-fit'>
+                        {' '}
+                        <img
+                            src='/spiral.png'
+                            alt='spiral logo'
+                            className=' h-16 w-16 mb-2'
+                        />
+                        <h1 className='text-2xl font-bold'>
+                            Welcome to KATOL Galleria
+                        </h1>
+                    </div>
+
+                    <p className='mt-2 text-sm text-slate-600'>
+                        Do you already have an account? <br />{' '}
+                        <em>Isipin mong maigi ang sagot sa tanong TOL!</em> 🤔
+                    </p>
                     <div className='mt-6 grid gap-3'>
                         <button
                             type='button'
@@ -55,8 +77,15 @@ export function LoginForm() {
     return (
         <main className='mx-auto grid min-h-screen w-full max-w-md place-items-center px-4 py-8'>
             <section className='w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm'>
-                <h1 className='text-2xl font-bold'>Login</h1>
-                <p className='mt-2 text-sm text-slate-600'>Continue with Google to access your existing account.</p>
+                <div className='flex items-center gap-3 mb-4 mx-auto w-fit'>
+                    {' '}
+                    <img
+                        src='/spiral.png'
+                        alt='spiral logo'
+                        className=' h-16 w-16 mb-2'
+                    />
+                    <h1 className='text-2xl font-bold'>Login</h1>
+                </div>
                 <div className='mt-6 space-y-3'>
                     <button
                         type='button'
@@ -64,7 +93,9 @@ export function LoginForm() {
                         disabled={pending}
                         className='w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60'
                     >
-                        {pending ? 'Redirecting to Google...' : 'Continue with Google'}
+                        {pending
+                            ? 'Redirecting to Google...'
+                            : 'Login with Google'}
                     </button>
                     <button
                         type='button'
@@ -77,12 +108,16 @@ export function LoginForm() {
                         Back
                     </button>
                 </div>
-                {status ? <p className='mt-3 text-sm text-red-600'>{status}</p> : null}
-                <Link href='/register' className='mt-4 inline-block text-sm font-semibold text-cyan-700 hover:underline'>
+                {status ? (
+                    <p className='mt-3 text-sm text-red-600'>{status}</p>
+                ) : null}
+                <Link
+                    href='/register'
+                    className='mt-4 inline-block text-sm font-semibold text-cyan-700 hover:underline'
+                >
                     New here? Create account
                 </Link>
             </section>
         </main>
     );
 }
-

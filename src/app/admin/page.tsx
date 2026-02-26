@@ -15,7 +15,7 @@ export default function AdminPage() {
                         title='Admin Panel'
                         description='Manage users, registry, events, reports, and analytics from one consistent workspace.'
                     />
-                    <section className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+                    {/* <section className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
                         {ADMIN_NAV_LINKS.map((item) => (
                             <article
                                 key={item.href}
@@ -38,7 +38,7 @@ export default function AdminPage() {
                                 </Link>
                             </article>
                         ))}
-                    </section>
+                    </section> */}
                 </AdminPanelShell>
             </AppShell>
         </AuthGuard>

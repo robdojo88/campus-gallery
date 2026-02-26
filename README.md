@@ -1,4 +1,4 @@
-# Campus Gallery
+# KATOL Galleria
 
 Camera-first real-time campus social platform built with Next.js, Tailwind, and Supabase.
 

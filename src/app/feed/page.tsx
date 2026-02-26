@@ -21,6 +21,7 @@ export default function FeedPage() {
     const [targetCommentId, setTargetCommentId] = useState('');
     const [isAdminViewer, setIsAdminViewer] = useState<boolean | null>(null);
     const [viewerRole, setViewerRole] = useState<UserRole | null>(null);
+    const [profileResolved, setProfileResolved] = useState(false);
     const [campusPosts, setCampusPosts] = useState<Post[]>([]);
     const [status, setStatus] = useState('');
     const [loading, setLoading] = useState(true);
@@ -119,6 +120,7 @@ export default function FeedPage() {
     }, [cursor, feedVisibility, hasMore, loading, loadingMore]);
 
     useEffect(() => {
+        if (!profileResolved) return;
         void loadInitial();
         const unsubscribe = subscribeToPosts(() => {
             void refreshLoaded();
@@ -126,7 +128,7 @@ export default function FeedPage() {
         return () => {
             unsubscribe();
         };
-    }, [loadInitial, refreshLoaded]);
+    }, [loadInitial, profileResolved, refreshLoaded]);
 
     useEffect(() => {
         let mounted = true;
@@ -140,6 +142,10 @@ export default function FeedPage() {
                 if (!mounted) return;
                 setViewerRole(null);
                 setIsAdminViewer(false);
+            })
+            .finally(() => {
+                if (!mounted) return;
+                setProfileResolved(true);
             });
         return () => {
             mounted = false;

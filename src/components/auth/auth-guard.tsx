@@ -55,6 +55,7 @@ export function AuthGuard({
                 }
 
                 let profile = null;
+                let profileResolutionFailed = false;
                 try {
                     profile = await getCurrentUserProfile();
                     if (!profile) {
@@ -63,6 +64,17 @@ export function AuthGuard({
                     }
                 } catch {
                     profile = null;
+                    profileResolutionFailed = true;
+                }
+
+                if (profileResolutionFailed) {
+                    const latestUser = await getSessionUser().catch(() => null);
+                    if (!latestUser) {
+                        if (pathname !== '/login') {
+                            router.replace('/login');
+                        }
+                        return;
+                    }
                 }
 
                 const effectiveRole =

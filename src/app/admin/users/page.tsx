@@ -1,12 +1,12 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AdminPanelShell } from '@/components/admin/admin-panel-shell';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
-import { adminSetUserRole, fetchUsers } from '@/lib/supabase';
+import { adminSetUserRole, fetchUsers, subscribeToUsers } from '@/lib/supabase';
 import type { User } from '@/lib/types';
 
 type UserSortField = 'name' | 'role' | 'email' | 'status';
@@ -58,9 +58,11 @@ export default function AdminUsersPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE);
 
-    useEffect(() => {
-        async function load() {
-            setLoading(true);
+    const loadUsers = useCallback(
+        async (options: { silent?: boolean } = {}) => {
+            if (!options.silent) {
+                setLoading(true);
+            }
             try {
                 const data = await fetchUsers();
                 setUsers(data);
@@ -72,11 +74,27 @@ export default function AdminUsersPage() {
                         : 'Failed to load users.';
                 setStatus(message);
             } finally {
-                setLoading(false);
+                if (!options.silent) {
+                    setLoading(false);
+                }
             }
-        }
-        void load();
-    }, []);
+        },
+        [],
+    );
+
+    useEffect(() => {
+        void loadUsers();
+        const unsubscribe = subscribeToUsers(() => {
+            void loadUsers({ silent: true });
+        });
+        const pollingTimer = window.setInterval(() => {
+            void loadUsers({ silent: true });
+        }, 5000);
+        return () => {
+            unsubscribe();
+            window.clearInterval(pollingTimer);
+        };
+    }, [loadUsers]);
 
     const sortedUsers = useMemo(() => {
         const directionMultiplier = sortDirection === 'asc' ? 1 : -1;

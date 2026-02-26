@@ -57,6 +57,12 @@ type DbEventOption = {
     id: string;
     name: string;
 };
+type DbAppSettingsRow = {
+    id: boolean;
+    current_event_id: string | null;
+    updated_by: string | null;
+    updated_at: string;
+};
 type DbEventSearch = {
     id: string;
     name: string;
@@ -168,6 +174,14 @@ type DbContentReport = {
     created_at: string;
 };
 
+type DbAdminAuditLog = {
+    id: string;
+    admin_user_id: string;
+    action: string;
+    details: Record<string, unknown> | null;
+    created_at: string;
+};
+
 type DbStudentRegistry = {
     id: string;
     usn: string;
@@ -207,11 +221,13 @@ const DEFAULT_AVATAR_URL = '/avatar-default.svg';
 const INCOGNITO_ALIAS_PATTERN = /^[A-Za-z0-9._-]{3,24}$/;
 const INCOGNITO_ALIAS_RULES = 'Incognito alias must be 3-24 characters and use letters, numbers, dot, underscore, or hyphen.';
 const PENDING_LOGIN_USN_KEY = 'ripple_pending_login_usn';
+const PENDING_AUTH_NOTICE_KEY = 'ripple_pending_auth_notice';
 const HASHTAG_PATTERN = /(^|\s)#([A-Za-z0-9_]{2,32})/g;
 const FREEDOM_POST_IMAGE_LIMIT = 4;
 
 let browserClient: SupabaseClient | null = null;
 let sessionRecoveryPromise: Promise<void> | null = null;
+let pendingUsnResolutionPromise: Promise<void> | null = null;
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -260,6 +276,15 @@ function getNotificationDataString(
 ): string | undefined {
     const value = data?.[key];
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function toRecordObject(
+    value: unknown,
+): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return {};
+    }
+    return value as Record<string, unknown>;
 }
 
 function resolveAvatarUrl(value: string | null | undefined): string {
@@ -440,12 +465,50 @@ function setPendingLoginUsn(usnInput: string): void {
     window.localStorage.setItem(PENDING_LOGIN_USN_KEY, normalizeUsn(usnInput));
 }
 
-function takePendingLoginUsn(): string | null {
+function setPendingAuthNotice(message: string): void {
+    if (typeof window === 'undefined') return;
+    const cleaned = message.trim();
+    if (!cleaned) return;
+    window.localStorage.setItem(
+        PENDING_AUTH_NOTICE_KEY,
+        cleaned.slice(0, 400),
+    );
+}
+
+export function takePendingAuthNotice(): string | null {
+    if (typeof window === 'undefined') return null;
+    const stored = window.localStorage.getItem(PENDING_AUTH_NOTICE_KEY);
+    if (stored === null) return null;
+    window.localStorage.removeItem(PENDING_AUTH_NOTICE_KEY);
+    return stored;
+}
+
+function clearPendingAuthNotice(): void {
+    if (typeof window === 'undefined') return;
+    window.localStorage.removeItem(PENDING_AUTH_NOTICE_KEY);
+}
+
+function toUsnResolutionNotice(error: unknown): string {
+    const message = toAppError(error).message;
+    const normalized = message.toLowerCase();
+    if (normalized.includes('already linked to another account')) {
+        return 'This USN is already used by another account. Contact admin, or continue as visitor temporarily.';
+    }
+    if (
+        normalized.includes('already linked to usn') ||
+        normalized.includes('cannot be changed')
+    ) {
+        return 'Your account is already linked to a different USN. Contact admin, or continue as visitor temporarily.';
+    }
+    return message;
+}
+
+function getPendingLoginUsn(): string | null {
     if (typeof window === 'undefined') return null;
     const stored = window.localStorage.getItem(PENDING_LOGIN_USN_KEY);
     if (stored === null) return null;
-    window.localStorage.removeItem(PENDING_LOGIN_USN_KEY);
-    return stored;
+    const normalized = normalizeUsn(stored);
+    return normalized || null;
 }
 
 function clearPendingLoginUsn(): void {
@@ -738,6 +801,10 @@ function isMissingTableError(error: unknown, tableName: string): boolean {
     );
 }
 
+function isMissingAppSettingsTableError(error: unknown): boolean {
+    return isMissingTableError(error, 'app_settings');
+}
+
 function isMissingUsersSuspensionColumnError(error: unknown): boolean {
     if (!error || typeof error !== 'object') return false;
     const message =
@@ -782,6 +849,10 @@ function isMissingIncognitoCommentLikesTableError(error: unknown): boolean {
 
 function isMissingContentReportsTableError(error: unknown): boolean {
     return isMissingTableError(error, 'content_reports');
+}
+
+function isMissingAdminAuditLogsTableError(error: unknown): boolean {
+    return isMissingTableError(error, 'admin_audit_logs');
 }
 
 function isMissingStudentRegistryTableError(error: unknown): boolean {
@@ -1010,19 +1081,30 @@ async function resolveCurrentUserRoleByUsn(usnInput: string): Promise<DbUsnRoleR
 }
 
 async function applyPendingUsnResolution(user: User): Promise<void> {
-    const pendingUsn = takePendingLoginUsn();
+    if (pendingUsnResolutionPromise) {
+        await pendingUsnResolutionPromise;
+        return;
+    }
+
+    const pendingUsn = getPendingLoginUsn();
     if (pendingUsn === null) return;
 
-    try {
-        await ensureUserProfile(user);
-        await resolveCurrentUserRoleByUsn(pendingUsn);
-    } catch (error) {
-        const supabase = getSupabase();
-        await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
-        throw toAppError(error);
-    } finally {
-        clearPendingLoginUsn();
-    }
+    pendingUsnResolutionPromise = (async () => {
+        try {
+            await ensureUserProfile(user);
+            await resolveCurrentUserRoleByUsn(pendingUsn);
+        } catch (error) {
+            setPendingAuthNotice(toUsnResolutionNotice(error));
+            const supabase = getSupabase();
+            await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+            throw toAppError(error);
+        } finally {
+            clearPendingLoginUsn();
+            pendingUsnResolutionPromise = null;
+        }
+    })();
+
+    await pendingUsnResolutionPromise;
 }
 
 export async function getCurrentUserProfile() {
@@ -1158,6 +1240,7 @@ export async function signUpWithEmail(input: {
     if (!usn) {
         throw new Error('USN is required.');
     }
+    clearPendingAuthNotice();
 
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
     const { data, error } = await supabase.auth.signUp({
@@ -1179,6 +1262,7 @@ export async function signUpWithEmail(input: {
             await ensureUserProfile(data.user);
             await resolveCurrentUserRoleByUsn(usn);
         } catch (resolveError) {
+            setPendingAuthNotice(toUsnResolutionNotice(resolveError));
             await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
             throw toAppError(resolveError);
         }
@@ -1259,6 +1343,7 @@ export async function signInWithEmail(input: {
     if (!usn) {
         throw new Error('USN is required.');
     }
+    clearPendingAuthNotice();
 
     setPendingLoginUsn(usn);
 
@@ -1277,6 +1362,7 @@ export async function signInWithEmail(input: {
             await ensureUserProfile(data.user);
             await resolveCurrentUserRoleByUsn(usn);
         } catch (resolveError) {
+            setPendingAuthNotice(toUsnResolutionNotice(resolveError));
             await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
             clearPendingLoginUsn();
             throw toAppError(resolveError);
@@ -1290,6 +1376,7 @@ export async function signInWithEmail(input: {
 export async function signInWithGoogle(usnInput?: string): Promise<void> {
     const supabase = getSupabase();
     const providedUsn = toNonEmptyString(usnInput);
+    clearPendingAuthNotice();
 
     if (providedUsn) {
         setPendingLoginUsn(providedUsn);
@@ -1350,30 +1437,140 @@ async function uploadOneCapture(input: {
     return { path: filePath, publicUrl };
 }
 
-async function requireMemberEventTag(
-    supabase: SupabaseClient,
-    eventId: string | null | undefined,
-): Promise<void> {
-    const profile = await getCurrentUserProfile();
-    if (profile?.role !== 'member') return;
+async function fetchCurrentEventId(supabase: SupabaseClient): Promise<string | null> {
+    const { data, error } = await supabase
+        .from('app_settings')
+        .select('current_event_id')
+        .eq('id', true)
+        .maybeSingle<Pick<DbAppSettingsRow, 'current_event_id'>>();
 
-    if (!eventId) {
+    if (error) {
+        if (isMissingAppSettingsTableError(error)) {
+            throw new Error(
+                "Database migration required: missing table 'public.app_settings'. Run SQL migration and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
+
+    const normalized = normalizeUuid(data?.current_event_id ?? undefined);
+    return normalized ?? null;
+}
+
+async function requireCurrentEventTag(
+    supabase: SupabaseClient,
+): Promise<string> {
+    const currentEventId = await fetchCurrentEventId(supabase);
+    if (!currentEventId) {
         throw new Error(
-            'Members must choose an admin-managed tag before posting.',
+            'No current event tag is set. Ask an admin to choose the active event in Admin Events.',
         );
     }
 
     const { data, error } = await supabase
         .from('events')
         .select('id')
-        .eq('id', eventId)
+        .eq('id', currentEventId)
         .maybeSingle<{ id: string }>();
     if (error) throw toAppError(error);
     if (!data) {
         throw new Error(
-            'Selected tag is unavailable. Choose one from admin tags.',
+            'Current event tag is unavailable. Ask an admin to set it again.',
         );
     }
+
+    return currentEventId;
+}
+
+async function resolveUploadEventId(
+    supabase: SupabaseClient,
+    preferredEventId?: string,
+): Promise<string> {
+    const normalizedPreferredEventId = normalizeUuid(preferredEventId);
+    if (normalizedPreferredEventId) {
+        const { data, error } = await supabase
+            .from('events')
+            .select('id')
+            .eq('id', normalizedPreferredEventId)
+            .maybeSingle<{ id: string }>();
+        if (error) throw toAppError(error);
+        if (data?.id) {
+            return data.id;
+        }
+    }
+
+    return requireCurrentEventTag(supabase);
+}
+
+export async function fetchCurrentEventTag(): Promise<
+    { id: string; name: string } | null
+> {
+    const supabase = getSupabase();
+    const currentEventId = await fetchCurrentEventId(supabase);
+    if (!currentEventId) return null;
+
+    const { data, error } = await supabase
+        .from('events')
+        .select('id,name')
+        .eq('id', currentEventId)
+        .maybeSingle<DbEventOption>();
+    if (error) throw toAppError(error);
+    if (!data) return null;
+    return data;
+}
+
+export async function setCurrentEventTag(eventId: string): Promise<void> {
+    const supabase = getSupabase();
+    const user = await getSessionUser();
+    if (!user) throw new Error('You must be logged in.');
+
+    const safeEventId = normalizeUuid(eventId);
+    if (!safeEventId) {
+        throw new Error('Choose a valid event tag.');
+    }
+
+    const profile = await getCurrentUserProfile();
+    if (profile?.role !== 'admin') {
+        throw new Error('Only admins can set the current event tag.');
+    }
+
+    const { data: eventRow, error: eventError } = await supabase
+        .from('events')
+        .select('id,name')
+        .eq('id', safeEventId)
+        .maybeSingle<{ id: string; name: string }>();
+    if (eventError) throw toAppError(eventError);
+    if (!eventRow) {
+        throw new Error('Selected event tag is unavailable.');
+    }
+
+    const { error: upsertError } = await supabase.from('app_settings').upsert(
+        {
+            id: true,
+            current_event_id: safeEventId,
+            updated_by: user.id,
+            updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' },
+    );
+    if (upsertError) {
+        if (isMissingAppSettingsTableError(upsertError)) {
+            throw new Error(
+                "Database migration required: missing table 'public.app_settings'. Run SQL migration and retry.",
+            );
+        }
+        throw toAppError(upsertError);
+    }
+
+    await insertAdminAuditLog({
+        supabase,
+        userId: user.id,
+        action: 'event_tag_set',
+        details: {
+            eventId: safeEventId,
+            eventName: eventRow.name,
+        },
+    });
 }
 
 export async function uploadCapturedImage(
@@ -1387,17 +1584,24 @@ export async function uploadCapturedImage(
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in to upload.');
+    let role: UserRole | null = null;
+    try {
+        role = (await getCurrentUserProfile())?.role ?? null;
+    } catch {
+        role = null;
+    }
     const cleanedCaption = requirePostCaption(options.caption);
-
-    const safeEventId = normalizeUuid(options.eventId);
-    await requireMemberEventTag(supabase, safeEventId);
+    const enforcedEventId = await resolveUploadEventId(
+        supabase,
+        options.eventId,
+    );
 
     const uploaded = await uploadOneCapture({
         userId: user.id,
         imageDataUrl,
         caption: cleanedCaption,
         visibility: options.visibility ?? 'campus',
-        eventId: safeEventId,
+        eventId: enforcedEventId,
     });
 
     const { data: postRow, error: insertError } = await supabase
@@ -1407,7 +1611,7 @@ export async function uploadCapturedImage(
             image_url: uploaded.publicUrl,
             caption: cleanedCaption,
             visibility: options.visibility ?? 'campus',
-            event_id: safeEventId ?? null,
+            event_id: enforcedEventId,
         })
         .select('id')
         .single();
@@ -1427,6 +1631,20 @@ export async function uploadCapturedImage(
         // Feed falls back to posts.image_url.
     }
 
+    if (role === 'admin') {
+        await insertAdminAuditLog({
+            supabase,
+            userId: user.id,
+            action: 'feed_post_created',
+            details: {
+                postId: postRow.id,
+                imageCount: 1,
+                visibility: options.visibility ?? 'campus',
+                eventId: enforcedEventId,
+            },
+        });
+    }
+
     return uploaded.publicUrl;
 }
 
@@ -1439,10 +1657,18 @@ export async function uploadBatchCaptures(input: {
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in to upload.');
+    let role: UserRole | null = null;
+    try {
+        role = (await getCurrentUserProfile())?.role ?? null;
+    } catch {
+        role = null;
+    }
     if (input.captures.length === 0) throw new Error('No captures to upload.');
     const cleanedCaption = requirePostCaption(input.caption);
-    const safeEventId = normalizeUuid(input.eventId);
-    await requireMemberEventTag(supabase, safeEventId);
+    const enforcedEventId = await resolveUploadEventId(
+        supabase,
+        input.eventId,
+    );
 
     const createdFiles: { path: string; publicUrl: string }[] = [];
     try {
@@ -1452,7 +1678,7 @@ export async function uploadBatchCaptures(input: {
                 imageDataUrl,
                 caption: cleanedCaption,
                 visibility: input.visibility ?? 'campus',
-                eventId: safeEventId,
+                eventId: enforcedEventId,
             });
             createdFiles.push(uploaded);
         }
@@ -1469,7 +1695,7 @@ export async function uploadBatchCaptures(input: {
                 image_url: coverUrl,
                 caption: cleanedCaption,
                 visibility: input.visibility ?? 'campus',
-                event_id: safeEventId ?? null,
+                event_id: enforcedEventId,
             })
             .select('id')
             .single();
@@ -1490,6 +1716,20 @@ export async function uploadBatchCaptures(input: {
             }
             throw toAppError(imagesInsertError);
         }
+
+        if (role === 'admin') {
+            await insertAdminAuditLog({
+                supabase,
+                userId: user.id,
+                action: 'feed_post_created',
+                details: {
+                    postId: postRow.id,
+                    imageCount: imageRows.length,
+                    visibility: input.visibility ?? 'campus',
+                    eventId: enforcedEventId,
+                },
+            });
+        }
     } catch (error) {
         if (createdFiles.length > 0) {
             await supabase.storage.from('captures').remove(createdFiles.map((file) => file.path));
@@ -1507,11 +1747,18 @@ export async function createPostWithImages(input: {
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in to upload.');
+    let role: UserRole | null = null;
+    try {
+        role = (await getCurrentUserProfile())?.role ?? null;
+    } catch {
+        role = null;
+    }
     if (input.imageUrls.length === 0) throw new Error('No images for post.');
     const cleanedCaption = requirePostCaption(input.caption);
-
-    const safeEventId = normalizeUuid(input.eventId);
-    await requireMemberEventTag(supabase, safeEventId);
+    const enforcedEventId = await resolveUploadEventId(
+        supabase,
+        input.eventId,
+    );
     const coverUrl = input.imageUrls[0];
 
     const { data: postRow, error: postInsertError } = await supabase
@@ -1521,7 +1768,7 @@ export async function createPostWithImages(input: {
             image_url: coverUrl,
             caption: cleanedCaption,
             visibility: input.visibility ?? 'campus',
-            event_id: safeEventId ?? null,
+            event_id: enforcedEventId,
         })
         .select('id')
         .single();
@@ -1541,15 +1788,47 @@ export async function createPostWithImages(input: {
         }
         throw toAppError(imagesInsertError);
     }
+
+    if (role === 'admin') {
+        await insertAdminAuditLog({
+            supabase,
+            userId: user.id,
+            action: 'feed_post_created',
+            details: {
+                postId: postRow.id,
+                imageCount: imageRows.length,
+                visibility: input.visibility ?? 'campus',
+                eventId: enforcedEventId,
+            },
+        });
+    }
 }
 
 export async function flushPendingCaptures(captures: OfflineCapture[]): Promise<void> {
     for (const capture of captures) {
-        await uploadCapturedImage(capture.imageDataUrl, {
-            caption: capture.caption,
-            visibility: capture.visibility,
-            eventId: capture.eventId,
-        });
+        const captureImages =
+            Array.isArray(capture.captures) && capture.captures.length > 0
+                ? capture.captures
+                : capture.imageDataUrl
+                  ? [capture.imageDataUrl]
+                  : [];
+        if (captureImages.length === 0) {
+            continue;
+        }
+        if (captureImages.length === 1) {
+            await uploadCapturedImage(captureImages[0], {
+                caption: capture.caption,
+                visibility: capture.visibility,
+                eventId: capture.eventId,
+            });
+        } else {
+            await uploadBatchCaptures({
+                captures: captureImages,
+                caption: capture.caption,
+                visibility: capture.visibility,
+                eventId: capture.eventId,
+            });
+        }
     }
 }
 
@@ -1925,6 +2204,10 @@ export async function createEvent(input: { name: string; description?: string })
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in.');
+    const profile = await getCurrentUserProfile();
+    if (profile?.role !== 'admin') {
+        throw new Error('Only admins can create event tags.');
+    }
     const name = input.name.trim();
     const description = input.description?.trim() ?? '';
 
@@ -1932,12 +2215,29 @@ export async function createEvent(input: { name: string; description?: string })
         throw new Error('Event name is required.');
     }
 
-    const { error } = await supabase.from('events').insert({
-        name,
-        description: description || null,
-        created_by: user.id,
+    const { data: createdEvent, error } = await supabase
+        .from('events')
+        .insert({
+            name,
+            description: description || null,
+            created_by: user.id,
+        })
+        .select('id')
+        .single<{ id: string }>();
+    if (error || !createdEvent) {
+        throw toAppError(error ?? new Error('Failed to create event.'));
+    }
+
+    await insertAdminAuditLog({
+        supabase,
+        userId: user.id,
+        action: 'event_created',
+        details: {
+            name,
+            description: description || null,
+            eventId: createdEvent.id,
+        },
     });
-    if (error) throw toAppError(error);
 }
 
 export async function fetchDateFolderCounts(): Promise<
@@ -2123,6 +2423,12 @@ export async function createFreedomPost(input: string | { content?: string; imag
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in.');
+    let role: UserRole | null = null;
+    try {
+        role = (await getCurrentUserProfile())?.role ?? null;
+    } catch {
+        role = null;
+    }
 
     const rawContent = typeof input === 'string' ? input : input.content ?? '';
     const cleanedContent = requirePostCaption(rawContent);
@@ -2160,16 +2466,32 @@ export async function createFreedomPost(input: string | { content?: string; imag
 
     const serializedImageUrls = serializeFreedomWallImageUrls(uploadedUrls);
 
-    const { error } = await supabase.from('freedom_wall_posts').insert({
-        user_id: user.id,
-        content: cleanedContent,
-        image_url: serializedImageUrls,
-    });
-    if (error) {
+    const { data: postRow, error } = await supabase
+        .from('freedom_wall_posts')
+        .insert({
+            user_id: user.id,
+            content: cleanedContent,
+            image_url: serializedImageUrls,
+        })
+        .select('id')
+        .single();
+    if (error || !postRow) {
         if (uploadedPaths.length > 0) {
             await supabase.storage.from('captures').remove(uploadedPaths);
         }
-        throw toAppError(error);
+        throw toAppError(error ?? new Error('Failed to create Freedom Wall post.'));
+    }
+
+    if (role === 'admin') {
+        await insertAdminAuditLog({
+            supabase,
+            userId: user.id,
+            action: 'freedom_post_created',
+            details: {
+                postId: postRow.id,
+                imageCount: uploadedUrls.length,
+            },
+        });
     }
 }
 
@@ -2504,11 +2826,27 @@ export async function createIncognitoPost(content: string): Promise<void> {
     }
     const cleaned = content.trim();
     if (!cleaned) throw new Error('Write something before posting.');
-    const { error } = await supabase.from('incognito_posts').insert({
-        user_id: user.id,
-        content: cleaned,
-    });
-    if (error) throw toAppError(error);
+    const { data: postRow, error } = await supabase
+        .from('incognito_posts')
+        .insert({
+            user_id: user.id,
+            content: cleaned,
+        })
+        .select('id')
+        .single();
+    if (error || !postRow) {
+        throw toAppError(error ?? new Error('Failed to create incognito post.'));
+    }
+    if (profile.role === 'admin') {
+        await insertAdminAuditLog({
+            supabase,
+            userId: user.id,
+            action: 'incognito_post_created',
+            details: {
+                postId: postRow.id,
+            },
+        });
+    }
 }
 
 export async function toggleIncognitoPostLike(postId: string): Promise<{ liked: boolean }> {
@@ -3383,7 +3721,15 @@ export async function adminSetUserRole(input: {
         payload.is_suspended = input.isSuspended;
     }
 
-    const { supabase } = await requireAdminSession();
+    const { supabase, userId } = await requireAdminSession();
+
+    const { data: targetUser, error: targetUserError } = await supabase
+        .from('users')
+        .select('id,name')
+        .eq('id', input.userId)
+        .maybeSingle<{ id: string; name: string }>();
+    if (targetUserError) throw toAppError(targetUserError);
+
     const { error } = await supabase
         .from('users')
         .update(payload)
@@ -3399,6 +3745,21 @@ export async function adminSetUserRole(input: {
         }
         throw toAppError(error);
     }
+
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: 'user_role_updated',
+        details: {
+            targetUserId: input.userId,
+            targetUserName: targetUser?.name ?? null,
+            role: input.role,
+            isSuspended:
+                typeof input.isSuspended === 'boolean'
+                    ? input.isSuspended
+                    : undefined,
+        },
+    });
 }
 
 export async function fetchStudentRegistry(): Promise<StudentRegistryEntry[]> {
@@ -3423,7 +3784,7 @@ export async function fetchStudentRegistry(): Promise<StudentRegistryEntry[]> {
 export async function upsertStudentRegistryEntry(
     input: StudentRegistryUpsertInput & { id?: string },
 ): Promise<StudentRegistryEntry> {
-    const { supabase } = await requireAdminSession();
+    const { supabase, userId } = await requireAdminSession();
     const payload = normalizeStudentRegistryPayload(input);
 
     if (input.id) {
@@ -3450,6 +3811,17 @@ export async function upsertStudentRegistryEntry(
         if (!data) {
             throw new Error('Student record was not found.');
         }
+        await insertAdminAuditLog({
+            supabase,
+            userId,
+            action: 'student_registry_upserted',
+            details: {
+                operation: 'update',
+                entryId: data.id,
+                usn: data.usn,
+                fullName: `${data.first_name} ${data.last_name}`.trim(),
+            },
+        });
         return mapStudentRegistryRow(data);
     }
 
@@ -3472,13 +3844,24 @@ export async function upsertStudentRegistryEntry(
     if (!data) {
         throw new Error('Failed to save student record.');
     }
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: 'student_registry_upserted',
+        details: {
+            operation: 'upsert',
+            entryId: data.id,
+            usn: data.usn,
+            fullName: `${data.first_name} ${data.last_name}`.trim(),
+        },
+    });
     return mapStudentRegistryRow(data);
 }
 
 export async function bulkUpsertStudentRegistry(
     rows: StudentRegistryUpsertInput[],
 ): Promise<{ upserted: number }> {
-    const { supabase } = await requireAdminSession();
+    const { supabase, userId } = await requireAdminSession();
     if (rows.length === 0) {
         return { upserted: 0 };
     }
@@ -3500,14 +3883,34 @@ export async function bulkUpsertStudentRegistry(
         }
         throw toAppError(error);
     }
-    return { upserted: data?.length ?? payload.length };
+    const upserted = data?.length ?? payload.length;
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: 'student_registry_bulk_upserted',
+        details: {
+            upserted,
+        },
+    });
+    return { upserted };
 }
 
 export async function deleteStudentRegistryEntry(entryId: string): Promise<void> {
     if (!UUID_PATTERN.test(entryId)) {
         throw new Error('Invalid student entry id.');
     }
-    const { supabase } = await requireAdminSession();
+    const { supabase, userId } = await requireAdminSession();
+    const { data: existingEntry, error: existingEntryError } = await supabase
+        .from('student_registry')
+        .select('id,usn,first_name,last_name')
+        .eq('id', entryId)
+        .maybeSingle<{
+            id: string;
+            usn: string;
+            first_name: string;
+            last_name: string;
+        }>();
+    if (existingEntryError) throw toAppError(existingEntryError);
     const { error } = await supabase
         .from('student_registry')
         .delete()
@@ -3520,6 +3923,19 @@ export async function deleteStudentRegistryEntry(entryId: string): Promise<void>
         }
         throw toAppError(error);
     }
+
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: 'student_registry_deleted',
+        details: {
+            entryId,
+            usn: existingEntry?.usn ?? null,
+            fullName: existingEntry
+                ? `${existingEntry.first_name} ${existingEntry.last_name}`.trim()
+                : null,
+        },
+    });
 }
 
 export async function searchGlobalContent(
@@ -3775,6 +4191,503 @@ export async function fetchAdminStats() {
     };
 }
 
+export type AdminContributor = {
+    userId: string;
+    name: string;
+    role: UserRole;
+    posts: number;
+    likes: number;
+    comments: number;
+    interactions: number;
+    score: number;
+};
+
+export type AdminAuditAction =
+    | 'event_created'
+    | 'event_tag_set'
+    | 'feed_post_created'
+    | 'freedom_post_created'
+    | 'incognito_post_created'
+    | 'content_deleted'
+    | 'report_declined'
+    | 'report_resolved_delete_target'
+    | 'review_deleted'
+    | 'reviews_deleted_bulk'
+    | 'user_role_updated'
+    | 'student_registry_upserted'
+    | 'student_registry_bulk_upserted'
+    | 'student_registry_deleted'
+    | 'gallery_images_downloaded';
+
+export type AdminAuditCategory =
+    | 'all'
+    | 'posting'
+    | 'deleting'
+    | 'editing'
+    | 'suspending'
+    | 'moderation'
+    | 'events'
+    | 'downloads'
+    | 'other';
+
+export type AdminAuditLogEntry = {
+    id: string;
+    adminUserId: string;
+    adminName: string;
+    action: AdminAuditAction | string;
+    actionLabel: string;
+    category: Exclude<AdminAuditCategory, 'all'>;
+    description: string;
+    details: Record<string, unknown>;
+    createdAt: string;
+};
+
+export async function fetchAdminTopContributors(
+    limit = 10,
+): Promise<AdminContributor[]> {
+    const supabase = getSupabase();
+    const safeLimit = Math.max(1, Math.min(limit, 10));
+
+    const [
+        { data: users, error: usersError },
+        { data: posts, error: postsError },
+        { data: likes, error: likesError },
+        { data: comments, error: commentsError },
+    ] = await Promise.all([
+        supabase
+            .from('users')
+            .select('id,name,role,is_suspended')
+            .returns<
+                Array<{
+                    id: string;
+                    name: string;
+                    role: UserRole;
+                    is_suspended: boolean | null;
+                }>
+            >(),
+        supabase
+            .from('posts')
+            .select('user_id')
+            .returns<Array<{ user_id: string }>>(),
+        supabase
+            .from('likes')
+            .select('user_id')
+            .returns<Array<{ user_id: string }>>(),
+        supabase
+            .from('comments')
+            .select('user_id')
+            .returns<Array<{ user_id: string }>>(),
+    ]);
+
+    if (usersError) throw toAppError(usersError);
+    if (postsError) throw toAppError(postsError);
+    if (likesError) throw toAppError(likesError);
+    if (commentsError) throw toAppError(commentsError);
+
+    const postCountByUser = new Map<string, number>();
+    const likeCountByUser = new Map<string, number>();
+    const commentCountByUser = new Map<string, number>();
+
+    (posts ?? []).forEach((row) => {
+        postCountByUser.set(
+            row.user_id,
+            (postCountByUser.get(row.user_id) ?? 0) + 1,
+        );
+    });
+    (likes ?? []).forEach((row) => {
+        likeCountByUser.set(
+            row.user_id,
+            (likeCountByUser.get(row.user_id) ?? 0) + 1,
+        );
+    });
+    (comments ?? []).forEach((row) => {
+        commentCountByUser.set(
+            row.user_id,
+            (commentCountByUser.get(row.user_id) ?? 0) + 1,
+        );
+    });
+
+    const contributors = (users ?? [])
+        .filter((user) => user.is_suspended !== true)
+        .map((user) => {
+            const postsCount = postCountByUser.get(user.id) ?? 0;
+            const likesCount = likeCountByUser.get(user.id) ?? 0;
+            const commentsCount = commentCountByUser.get(user.id) ?? 0;
+            const interactions = likesCount + commentsCount;
+            return {
+                userId: user.id,
+                name: user.name,
+                role: user.role,
+                posts: postsCount,
+                likes: likesCount,
+                comments: commentsCount,
+                interactions,
+            };
+        })
+        .filter((entry) => entry.posts > 0 || entry.interactions > 0);
+
+    if (contributors.length === 0) return [];
+
+    const maxPosts = Math.max(
+        1,
+        ...contributors.map((entry) => entry.posts),
+    );
+    const maxInteractions = Math.max(
+        1,
+        ...contributors.map((entry) => entry.interactions),
+    );
+
+    const scored = contributors
+        .map((entry) => {
+            const postWeight = (entry.posts / maxPosts) * 70;
+            const interactionWeight =
+                (entry.interactions / maxInteractions) * 30;
+            const score = Number((postWeight + interactionWeight).toFixed(2));
+            return {
+                ...entry,
+                score,
+            };
+        })
+        .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            if (b.posts !== a.posts) return b.posts - a.posts;
+            if (b.interactions !== a.interactions) {
+                return b.interactions - a.interactions;
+            }
+            return a.name.localeCompare(b.name, undefined, {
+                sensitivity: 'base',
+            });
+        });
+
+    return scored.slice(0, safeLimit);
+}
+
+function getAuditDetailString(
+    details: Record<string, unknown>,
+    key: string,
+): string | undefined {
+    const value = details[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function getAuditDetailNumber(
+    details: Record<string, unknown>,
+    key: string,
+): number | undefined {
+    const value = details[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function formatReportTargetTypeLabel(
+    value: unknown,
+): string {
+    if (value === 'feed_post') return 'Feed post';
+    if (value === 'feed_comment') return 'Feed comment';
+    if (value === 'freedom_post') return 'Freedom Wall post';
+    if (value === 'freedom_comment') return 'Freedom Wall comment';
+    if (value === 'incognito_post') return 'Incognito post';
+    if (value === 'incognito_comment') return 'Incognito comment';
+    return 'content';
+}
+
+export function formatAdminAuditActionLabel(action: string): string {
+    if (action === 'event_created') return 'Created Event';
+    if (action === 'event_tag_set') return 'Set Current Event';
+    if (action === 'feed_post_created') return 'Posted Feed Content';
+    if (action === 'freedom_post_created') return 'Posted Freedom Wall';
+    if (action === 'incognito_post_created') return 'Posted Incognito';
+    if (action === 'content_deleted') return 'Deleted Content';
+    if (action === 'report_declined') return 'Declined Report';
+    if (action === 'report_resolved_delete_target') {
+        return 'Resolved Report + Deleted Target';
+    }
+    if (action === 'review_deleted') return 'Deleted Feedback';
+    if (action === 'reviews_deleted_bulk') return 'Bulk Deleted Feedback';
+    if (action === 'user_role_updated') return 'Updated User Role';
+    if (action === 'student_registry_upserted') return 'Edited Student Registry';
+    if (action === 'student_registry_bulk_upserted') {
+        return 'Bulk Imported Student Registry';
+    }
+    if (action === 'student_registry_deleted') return 'Deleted Student Registry Row';
+    if (action === 'gallery_images_downloaded') return 'Downloaded Gallery Images';
+    return action
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+export function classifyAdminAuditCategory(input: {
+    action: string;
+    details: Record<string, unknown>;
+}): Exclude<AdminAuditCategory, 'all'> {
+    const { action, details } = input;
+    if (
+        action === 'feed_post_created' ||
+        action === 'freedom_post_created' ||
+        action === 'incognito_post_created'
+    ) {
+        return 'posting';
+    }
+    if (
+        action === 'content_deleted' ||
+        action === 'review_deleted' ||
+        action === 'reviews_deleted_bulk' ||
+        action === 'student_registry_deleted' ||
+        action === 'report_resolved_delete_target'
+    ) {
+        return 'deleting';
+    }
+    if (
+        action === 'student_registry_upserted' ||
+        action === 'student_registry_bulk_upserted' ||
+        action === 'event_tag_set'
+    ) {
+        return 'editing';
+    }
+    if (action === 'report_declined') {
+        return 'moderation';
+    }
+    if (action === 'event_created') {
+        return 'events';
+    }
+    if (action === 'gallery_images_downloaded') {
+        return 'downloads';
+    }
+    if (action === 'user_role_updated') {
+        if (typeof details.isSuspended === 'boolean') {
+            return 'suspending';
+        }
+        return 'editing';
+    }
+    return 'other';
+}
+
+function buildAdminAuditDescription(input: {
+    adminName: string;
+    action: string;
+    details: Record<string, unknown>;
+    targetUserNameById: Map<string, string>;
+    eventNameById: Map<string, string>;
+}): string {
+    const {
+        adminName,
+        action,
+        details,
+        targetUserNameById,
+        eventNameById,
+    } = input;
+    const actor = adminName || 'Admin';
+    const eventId = getAuditDetailString(details, 'eventId');
+    const eventNameFromDetails = getAuditDetailString(details, 'eventName');
+    const eventName = eventNameFromDetails ?? (eventId ? eventNameById.get(eventId) : undefined);
+    const targetUserId = getAuditDetailString(details, 'targetUserId');
+    const targetUserName =
+        getAuditDetailString(details, 'targetUserName') ??
+        (targetUserId ? targetUserNameById.get(targetUserId) : undefined);
+
+    if (action === 'event_created') {
+        const createdName = getAuditDetailString(details, 'name') ?? 'Unnamed event';
+        const createdEventId = getAuditDetailString(details, 'eventId');
+        return `${actor} created event "${createdName}"${createdEventId ? ` (event id: ${createdEventId})` : ''}.`;
+    }
+
+    if (action === 'event_tag_set') {
+        return `${actor} set current event to "${eventName ?? 'Unknown event'}"${eventId ? ` (event id: ${eventId})` : ''}.`;
+    }
+
+    if (action === 'feed_post_created') {
+        const imageCount = getAuditDetailNumber(details, 'imageCount') ?? 1;
+        const visibility = getAuditDetailString(details, 'visibility') ?? 'campus';
+        const postId = getAuditDetailString(details, 'postId');
+        return `${actor} posted to Feed with ${imageCount} image(s), visibility "${visibility}"${eventName ? `, event "${eventName}"` : ''}${postId ? ` (post id: ${postId})` : ''}.`;
+    }
+
+    if (action === 'freedom_post_created') {
+        const imageCount = getAuditDetailNumber(details, 'imageCount') ?? 0;
+        const postId = getAuditDetailString(details, 'postId');
+        return `${actor} posted to Freedom Wall${imageCount > 0 ? ` with ${imageCount} image(s)` : ''}${postId ? ` (post id: ${postId})` : ''}.`;
+    }
+
+    if (action === 'incognito_post_created') {
+        const postId = getAuditDetailString(details, 'postId');
+        return `${actor} posted in Incognito${postId ? ` (post id: ${postId})` : ''}.`;
+    }
+
+    if (action === 'content_deleted') {
+        const targetType = formatReportTargetTypeLabel(details.targetType);
+        const targetId = getAuditDetailString(details, 'targetId');
+        return `${actor} deleted ${targetType}${targetId ? ` (target id: ${targetId})` : ''}.`;
+    }
+
+    if (action === 'report_declined') {
+        const reportId = getAuditDetailString(details, 'reportId');
+        const targetType = formatReportTargetTypeLabel(details.targetType);
+        const targetId = getAuditDetailString(details, 'targetId');
+        return `${actor} declined report${reportId ? ` ${reportId}` : ''} for ${targetType}${targetId ? ` (target id: ${targetId})` : ''}.`;
+    }
+
+    if (action === 'report_resolved_delete_target') {
+        const reportId = getAuditDetailString(details, 'reportId');
+        const targetType = formatReportTargetTypeLabel(details.targetType);
+        const targetId = getAuditDetailString(details, 'targetId');
+        return `${actor} resolved report${reportId ? ` ${reportId}` : ''} and deleted ${targetType}${targetId ? ` (target id: ${targetId})` : ''}.`;
+    }
+
+    if (action === 'review_deleted') {
+        const reviewId = getAuditDetailString(details, 'reviewId');
+        return `${actor} deleted visitor feedback${reviewId ? ` (review id: ${reviewId})` : ''}.`;
+    }
+
+    if (action === 'reviews_deleted_bulk') {
+        const deleted = getAuditDetailNumber(details, 'deleted') ?? 0;
+        return `${actor} bulk deleted ${deleted} feedback item(s).`;
+    }
+
+    if (action === 'user_role_updated') {
+        const role = getAuditDetailString(details, 'role') ?? 'unknown';
+        const isSuspended = details.isSuspended;
+        const targetLabel = targetUserName
+            ? `${targetUserName}${targetUserId ? ` (user id: ${targetUserId})` : ''}`
+            : targetUserId
+              ? `user id ${targetUserId}`
+              : 'a user';
+        if (isSuspended === true) {
+            return `${actor} suspended ${targetLabel}. Role now set to "${role}".`;
+        }
+        if (isSuspended === false) {
+            return `${actor} unsuspended ${targetLabel}. Role now set to "${role}".`;
+        }
+        return `${actor} changed role of ${targetLabel} to "${role}".`;
+    }
+
+    if (action === 'student_registry_upserted') {
+        const operation = getAuditDetailString(details, 'operation') ?? 'upsert';
+        const fullName = getAuditDetailString(details, 'fullName');
+        const usn = getAuditDetailString(details, 'usn');
+        const entryId = getAuditDetailString(details, 'entryId');
+        return `${actor} ${operation === 'update' ? 'updated' : 'saved'} student registry row${fullName ? ` for ${fullName}` : ''}${usn ? ` (USN: ${usn})` : ''}${entryId ? ` [entry id: ${entryId}]` : ''}.`;
+    }
+
+    if (action === 'student_registry_bulk_upserted') {
+        const upserted = getAuditDetailNumber(details, 'upserted') ?? 0;
+        return `${actor} imported/updated ${upserted} student registry row(s).`;
+    }
+
+    if (action === 'student_registry_deleted') {
+        const fullName = getAuditDetailString(details, 'fullName');
+        const usn = getAuditDetailString(details, 'usn');
+        const entryId = getAuditDetailString(details, 'entryId');
+        return `${actor} deleted student registry row${fullName ? ` for ${fullName}` : ''}${usn ? ` (USN: ${usn})` : ''}${entryId ? ` [entry id: ${entryId}]` : ''}.`;
+    }
+
+    if (action === 'gallery_images_downloaded') {
+        const folderDate = getAuditDetailString(details, 'folderDate');
+        const imageCount = getAuditDetailNumber(details, 'imageCount') ?? 0;
+        const archiveName = getAuditDetailString(details, 'archiveName');
+        return `${actor} downloaded ${imageCount} image(s) from date folder ${folderDate ?? 'unknown'}${archiveName ? ` as ${archiveName}` : ''}.`;
+    }
+
+    return `${actor} performed action "${action}".`;
+}
+
+export async function fetchAdminAuditLogs(
+    limit = 50,
+): Promise<AdminAuditLogEntry[]> {
+    const { supabase } = await requireAdminSession();
+    const safeLimit = Math.max(1, Math.min(limit, 1000));
+    const { data: rows, error } = await supabase
+        .from('admin_audit_logs')
+        .select('id,admin_user_id,action,details,created_at')
+        .order('created_at', { ascending: false })
+        .limit(safeLimit)
+        .returns<DbAdminAuditLog[]>();
+
+    if (error) {
+        if (isMissingAdminAuditLogsTableError(error)) {
+            throw new Error(
+                "Database migration required: missing 'admin_audit_logs' table. Run 'supabase/admin-audit-log.sql' and retry.",
+            );
+        }
+        throw toAppError(error);
+    }
+    if (!rows || rows.length === 0) return [];
+
+    const adminUserIds = rows.map((row) => row.admin_user_id);
+    const targetUserIds = rows
+        .map((row) => {
+            const details = toRecordObject(row.details);
+            const value = details.targetUserId;
+            return typeof value === 'string' && value.trim() ? value.trim() : '';
+        })
+        .filter(Boolean);
+    const eventIds = rows
+        .map((row) => {
+            const details = toRecordObject(row.details);
+            const value = details.eventId;
+            return typeof value === 'string' && value.trim() ? value.trim() : '';
+        })
+        .filter(Boolean);
+
+    const uniqueUserIds = [...new Set([...adminUserIds, ...targetUserIds])];
+    const nameByUserId = new Map<string, string>();
+    const eventNameById = new Map<string, string>();
+
+    const userFetchPromise =
+        uniqueUserIds.length > 0
+            ? supabase
+                  .from('users')
+                  .select('id,name')
+                  .in('id', uniqueUserIds)
+                  .returns<Array<{ id: string; name: string }>>()
+            : Promise.resolve({ data: [], error: null });
+    const eventFetchPromise =
+        eventIds.length > 0
+            ? supabase
+                  .from('events')
+                  .select('id,name')
+                  .in('id', [...new Set(eventIds)])
+                  .returns<Array<{ id: string; name: string }>>()
+            : Promise.resolve({ data: [], error: null });
+
+    const [{ data: users, error: usersError }, { data: events, error: eventsError }] =
+        await Promise.all([userFetchPromise, eventFetchPromise]);
+    if (usersError) throw toAppError(usersError);
+    if (eventsError) throw toAppError(eventsError);
+
+    (users ?? []).forEach((row) => {
+        nameByUserId.set(row.id, row.name);
+    });
+    (events ?? []).forEach((row) => {
+        eventNameById.set(row.id, row.name);
+    });
+
+    return rows.map((row) => {
+        const details = toRecordObject(row.details);
+        const category = classifyAdminAuditCategory({
+            action: row.action,
+            details,
+        });
+        const adminName = nameByUserId.get(row.admin_user_id) ?? 'Admin';
+        return {
+            id: row.id,
+            adminUserId: row.admin_user_id,
+            adminName,
+            action: row.action,
+            actionLabel: formatAdminAuditActionLabel(row.action),
+            category,
+            description: buildAdminAuditDescription({
+                adminName,
+                action: row.action,
+                details,
+                targetUserNameById: nameByUserId,
+                eventNameById,
+            }),
+            details,
+            createdAt: row.created_at,
+        };
+    });
+}
+
 export async function createReview(input: { reviewText: string }): Promise<void> {
     const supabase = getSupabase();
     const [user, profile] = await Promise.all([
@@ -3808,6 +4721,41 @@ async function requireAdminSession(): Promise<{ supabase: SupabaseClient; userId
         throw new Error('Admin access required.');
     }
     return { supabase, userId: user.id };
+}
+
+async function insertAdminAuditLog(input: {
+    supabase: SupabaseClient;
+    userId: string;
+    action: AdminAuditAction | string;
+    details?: Record<string, unknown>;
+}): Promise<void> {
+    const payload = {
+        admin_user_id: input.userId,
+        action: input.action,
+        details: toRecordObject(input.details),
+    };
+    const { error } = await input.supabase.from('admin_audit_logs').insert(payload);
+    if (error) {
+        if (
+            isMissingAdminAuditLogsTableError(error) ||
+            isPermissionDeniedError(error)
+        ) {
+            return;
+        }
+    }
+}
+
+export async function logAdminAuditAction(input: {
+    action: AdminAuditAction | string;
+    details?: Record<string, unknown>;
+}): Promise<void> {
+    const { supabase, userId } = await requireAdminSession();
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: input.action,
+        details: input.details,
+    });
 }
 
 async function deleteContentTargetWithClient(
@@ -3852,28 +4800,54 @@ export async function adminDeleteContentTarget(input: {
     targetType: ReportTargetType;
     targetId: string;
 }): Promise<void> {
-    const { supabase } = await requireAdminSession();
+    const { supabase, userId } = await requireAdminSession();
     await deleteContentTargetWithClient(supabase, input.targetType, input.targetId);
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: 'content_deleted',
+        details: {
+            targetType: input.targetType,
+            targetId: input.targetId,
+        },
+    });
 }
 
 export async function deleteReview(reviewId: string): Promise<void> {
     if (!UUID_PATTERN.test(reviewId)) {
         throw new Error('Invalid review id.');
     }
-    const { supabase } = await requireAdminSession();
+    const { supabase, userId } = await requireAdminSession();
     const { error } = await supabase.from('reviews').delete().eq('id', reviewId);
     if (error) throw toAppError(error);
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: 'review_deleted',
+        details: {
+            reviewId,
+        },
+    });
 }
 
 export async function deleteAllReviews(): Promise<number> {
-    const { supabase } = await requireAdminSession();
+    const { supabase, userId } = await requireAdminSession();
     const { data, error } = await supabase
         .from('reviews')
         .delete()
         .not('id', 'is', null)
         .select('id');
     if (error) throw toAppError(error);
-    return (data ?? []).length;
+    const deleted = (data ?? []).length;
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action: 'reviews_deleted_bulk',
+        details: {
+            deleted,
+        },
+    });
+    return deleted;
 }
 
 export async function createContentReport(input: {
@@ -4108,6 +5082,21 @@ export async function resolveContentReport(input: {
         })
         .eq('id', input.reportId);
     if (updateError) throw toAppError(updateError);
+
+    await insertAdminAuditLog({
+        supabase,
+        userId,
+        action:
+            input.action === 'delete_target'
+                ? 'report_resolved_delete_target'
+                : 'report_declined',
+        details: {
+            reportId: input.reportId,
+            targetType: report.target_type,
+            targetId: report.target_id,
+            actionNote: input.actionNote?.trim() || null,
+        },
+    });
 }
 
 export function subscribeToPosts(onChange: () => void): () => void {
@@ -4118,6 +5107,22 @@ export function subscribeToPosts(onChange: () => void): () => void {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'post_images' }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
+        .subscribe();
+
+    return () => {
+        void supabase.removeChannel(channel);
+    };
+}
+
+export function subscribeToUsers(onChange: () => void): () => void {
+    const supabase = getSupabase();
+    const channel = supabase
+        .channel('users-realtime')
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'users' },
+            onChange,
+        )
         .subscribe();
 
     return () => {

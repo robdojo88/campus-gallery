@@ -5,8 +5,12 @@ import { FormEvent, useEffect, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AdminPanelShell } from '@/components/admin/admin-panel-shell';
 import { AppShell } from '@/components/layout/app-shell';
-import { PageHeader } from '@/components/ui/page-header';
-import { createEvent, fetchEvents } from '@/lib/supabase';
+import {
+    createEvent,
+    fetchCurrentEventTag,
+    fetchEvents,
+    setCurrentEventTag,
+} from '@/lib/supabase';
 
 type AdminEvent = {
     id: string;
@@ -22,16 +26,33 @@ export default function AdminEventsPage() {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [selectedCurrentEventId, setSelectedCurrentEventId] = useState('');
+    const [savingCurrentEvent, setSavingCurrentEvent] = useState(false);
 
-    async function loadEvents() {
+    async function loadEvents(options: { preserveStatus?: boolean } = {}) {
         try {
-            const data = await fetchEvents();
+            const [data, currentEvent] = await Promise.all([
+                fetchEvents(),
+                fetchCurrentEventTag(),
+            ]);
             setEvents(data);
-            setStatus(
-                data.length === 0
-                    ? 'No tags yet. Create one to allow member uploads.'
-                    : '',
-            );
+            setSelectedCurrentEventId((previous) => {
+                if (currentEvent?.id) return currentEvent.id;
+                if (previous && data.some((item) => item.id === previous)) {
+                    return previous;
+                }
+                return '';
+            });
+
+            if (!options.preserveStatus) {
+                setStatus(
+                    data.length === 0
+                        ? 'No tags yet. Create one to allow member uploads.'
+                        : currentEvent
+                          ? `Current event tag: ${currentEvent.name}`
+                          : 'No current event tag selected. Set one below.',
+                );
+            }
         } catch (error) {
             const message =
                 error instanceof Error
@@ -58,9 +79,9 @@ export default function AdminEventsPage() {
             setName('');
             setDescription('');
             setStatus(
-                'Tag created successfully. Camera dropdown options are now updated.',
+                'Tag created successfully.',
             );
-            await loadEvents();
+            await loadEvents({ preserveStatus: true });
         } catch (error) {
             const message =
                 error instanceof Error
@@ -69,6 +90,34 @@ export default function AdminEventsPage() {
             setStatus(message);
         } finally {
             setSubmitting(false);
+        }
+    }
+
+    async function onSetCurrentEvent(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        if (savingCurrentEvent) return;
+        if (!selectedCurrentEventId) {
+            setStatus('Select one event tag first.');
+            return;
+        }
+
+        setSavingCurrentEvent(true);
+        setStatus('');
+        try {
+            await setCurrentEventTag(selectedCurrentEventId);
+            const eventName =
+                events.find((item) => item.id === selectedCurrentEventId)
+                    ?.name ?? 'Selected tag';
+            setStatus(`Current event tag set to ${eventName}.`);
+            await loadEvents({ preserveStatus: true });
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to update current event tag.';
+            setStatus(message);
+        } finally {
+            setSavingCurrentEvent(false);
         }
     }
 
@@ -120,6 +169,62 @@ export default function AdminEventsPage() {
                                 className='rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_20px_26px_-20px_rgba(15,23,42,0.9)] transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                             >
                                 {submitting ? 'Creating...' : 'Create Event'}
+                            </button>
+                        </form>
+                    </motion.section>
+
+                    <motion.section
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.22, ease: 'easeOut' }}
+                        className='mt-4 rounded-[30px] border border-white/75 bg-gradient-to-br from-white/90 via-white/82 to-slate-100/74 p-5 shadow-[0_30px_75px_-45px_rgba(15,23,42,0.6)] backdrop-blur-xl'
+                    >
+                        <h2 className='text-lg font-semibold tracking-tight text-slate-900'>
+                            Current Event Tag
+                        </h2>
+                        <p className='mt-2 text-sm text-slate-600'>
+                            All feed uploads are automatically tagged with the event selected here.
+                        </p>
+                        <form
+                            onSubmit={onSetCurrentEvent}
+                            className='mt-4 flex flex-col gap-3 sm:flex-row sm:items-center'
+                        >
+                            <select
+                                value={selectedCurrentEventId}
+                                onChange={(event) =>
+                                    setSelectedCurrentEventId(
+                                        event.target.value,
+                                    )
+                                }
+                                disabled={savingCurrentEvent || events.length === 0}
+                                className='w-full rounded-2xl border border-white/80 bg-white/90 px-3 py-2 text-sm text-slate-700 outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] transition focus:border-sky-300 disabled:opacity-60'
+                            >
+                                {events.length === 0 ? (
+                                    <option value=''>
+                                        No tags available
+                                    </option>
+                                ) : null}
+                                {events.length > 0 && !selectedCurrentEventId ? (
+                                    <option value=''>Select event tag</option>
+                                ) : null}
+                                {events.map((event) => (
+                                    <option key={event.id} value={event.id}>
+                                        {event.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <button
+                                type='submit'
+                                disabled={
+                                    savingCurrentEvent ||
+                                    events.length === 0 ||
+                                    !selectedCurrentEventId
+                                }
+                                className='rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_20px_26px_-20px_rgba(15,23,42,0.9)] transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                                {savingCurrentEvent
+                                    ? 'Saving...'
+                                    : 'Set Current Tag'}
                             </button>
                         </form>
                     </motion.section>

@@ -5,9 +5,17 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
-import { addPendingCapture } from '@/lib/offline-queue';
-import { fetchEventOptions, getCurrentUserProfile, uploadBatchCaptures } from '@/lib/supabase';
-import type { UserRole, Visibility } from '@/lib/types';
+import {
+    OFFLINE_QUEUE_CHANGED_EVENT,
+    addPendingCapture,
+    getPendingCaptures,
+} from '@/lib/offline-queue';
+import {
+    fetchCurrentEventTag,
+    getCurrentUserProfile,
+    uploadBatchCaptures,
+} from '@/lib/supabase';
+import type { Visibility } from '@/lib/types';
 
 export function MultiCameraCapture() {
     const router = useRouter();
@@ -16,29 +24,66 @@ export function MultiCameraCapture() {
     const captureNoticeTimeoutRef = useRef<number | null>(null);
     const [captures, setCaptures] = useState<string[]>([]);
     const [caption, setCaption] = useState('');
-    const [eventId, setEventId] = useState('');
-    const [eventOptions, setEventOptions] = useState<Array<{ id: string; name: string }>>([]);
-    const [eventsLoading, setEventsLoading] = useState(true);
-    const [visibility, setVisibility] = useState<Visibility>('campus');
-    const [role, setRole] = useState<UserRole | null>(null);
+    const [currentEvent, setCurrentEvent] = useState<{
+        id: string;
+        name: string;
+    } | null>(null);
+    const [currentEventLoading, setCurrentEventLoading] = useState(true);
+    const [visibility, setVisibility] = useState<Visibility>('visitor');
+    const [visibilityResolved, setVisibilityResolved] = useState(false);
     const [status, setStatus] = useState('');
     const [isCapturing, setIsCapturing] = useState(false);
     const [captureNotice, setCaptureNotice] = useState(false);
     const [uploading, setUploading] = useState(false);
-    const memberMustChooseTag = role === 'member';
+    const [pendingQueueCount, setPendingQueueCount] = useState(0);
+
+    useEffect(() => {
+        let mounted = true;
+
+        async function refreshPendingQueueCount() {
+            try {
+                const pending = await getPendingCaptures();
+                if (mounted) {
+                    setPendingQueueCount(pending.length);
+                }
+            } catch {
+                if (mounted) {
+                    setPendingQueueCount(0);
+                }
+            }
+        }
+
+        const handleQueueChanged = () => {
+            void refreshPendingQueueCount();
+        };
+
+        void refreshPendingQueueCount();
+        window.addEventListener(OFFLINE_QUEUE_CHANGED_EVENT, handleQueueChanged);
+        window.addEventListener('focus', handleQueueChanged);
+        return () => {
+            mounted = false;
+            window.removeEventListener(
+                OFFLINE_QUEUE_CHANGED_EVENT,
+                handleQueueChanged,
+            );
+            window.removeEventListener('focus', handleQueueChanged);
+        };
+    }, []);
 
     useEffect(() => {
         let mounted = true;
         getCurrentUserProfile()
             .then((profile) => {
-                if (!mounted || !profile) return;
-                setRole(profile.role);
-                setVisibility(profile.role === 'visitor' ? 'visitor' : 'campus');
+                if (!mounted) return;
+                setVisibility(profile?.role === 'visitor' ? 'visitor' : 'campus');
             })
             .catch(() => {
                 if (!mounted) return;
-                setRole(null);
-                setVisibility('campus');
+                setVisibility('visitor');
+            })
+            .finally(() => {
+                if (!mounted) return;
+                setVisibilityResolved(true);
             });
         return () => {
             mounted = false;
@@ -47,32 +92,35 @@ export function MultiCameraCapture() {
 
     useEffect(() => {
         let mounted = true;
-        async function loadEvents() {
+        async function loadCurrentEvent() {
             try {
-                const events = await fetchEventOptions();
+                const current = await fetchCurrentEventTag();
                 if (!mounted) return;
-                setEventOptions(events);
-            } catch {
+                setCurrentEvent(current);
+            } catch (error) {
                 if (!mounted) return;
-                setEventOptions([]);
+                setCurrentEvent(null);
+                if (navigator.onLine) {
+                    setStatus(
+                        getErrorMessage(
+                            error,
+                            'Failed to load current event tag.',
+                        ),
+                    );
+                } else {
+                    setStatus(
+                        'Offline mode - camera capture works and uploads will queue automatically.',
+                    );
+                }
             } finally {
-                if (mounted) setEventsLoading(false);
+                if (mounted) setCurrentEventLoading(false);
             }
         }
-        void loadEvents();
+        void loadCurrentEvent();
         return () => {
             mounted = false;
         };
     }, []);
-
-    useEffect(() => {
-        if (eventsLoading) return;
-        if (role !== 'member') return;
-        if (eventId) return;
-        const firstEventId = eventOptions[0]?.id ?? '';
-        if (!firstEventId) return;
-        setEventId(firstEventId);
-    }, [eventId, eventOptions, eventsLoading, role]);
 
     useEffect(() => {
         let stream: MediaStream | null = null;
@@ -135,40 +183,43 @@ export function MultiCameraCapture() {
             return;
         }
 
-        if (memberMustChooseTag) {
-            if (eventsLoading) {
-                setStatus('Tags are still loading. Please wait a moment.');
-                return;
-            }
-            if (eventOptions.length === 0) {
+        if (!visibilityResolved) {
+            setStatus('Resolving account visibility. Please wait a moment.');
+            return;
+        }
+
+        async function saveToOfflineQueue(prefix: string): Promise<boolean> {
+            try {
+                await addPendingCapture({
+                    id: crypto.randomUUID(),
+                    imageDataUrl: captures[0],
+                    captures: [...captures],
+                    caption: cleanedCaption,
+                    visibility,
+                    eventId: currentEvent?.id,
+                    createdAt: new Date().toISOString(),
+                });
+                const pending = await getPendingCaptures().catch(() => []);
+                const nextPendingCount = pending.length;
+                setPendingQueueCount(nextPendingCount);
                 setStatus(
-                    'No admin tags are available yet. Ask an admin to create tags first.',
+                    `${prefix} Saved locally as one pending post. Pending queue: ${nextPendingCount}. It will auto-upload when connection is stable.`,
                 );
-                return;
-            }
-            if (!eventId) {
-                setStatus('Select one admin tag before posting.');
-                return;
+                setCaptures([]);
+                setCaption('');
+                return true;
+            } catch (queueError) {
+                setStatus(
+                    `Failed to save offline queue: ${getErrorMessage(queueError, 'queue unavailable')}`,
+                );
+                return false;
             }
         }
 
         setUploading(true);
         try {
             if (!navigator.onLine) {
-                await Promise.all(
-                    captures.map((imageDataUrl) =>
-                        addPendingCapture({
-                            id: crypto.randomUUID(),
-                            imageDataUrl,
-                            caption: cleanedCaption,
-                            visibility,
-                            createdAt: new Date().toISOString(),
-                        }),
-                    ),
-                );
-                setStatus('Offline - batch saved locally as pending upload.');
-                setCaptures([]);
-                setCaption('');
+                await saveToOfflineQueue('Offline.');
                 return;
             }
 
@@ -176,15 +227,17 @@ export function MultiCameraCapture() {
                 captures,
                 caption: cleanedCaption,
                 visibility,
-                eventId: eventId || undefined,
             });
             setStatus('Batch upload successful. No partial uploads were committed.');
             setCaptures([]);
             setCaption('');
-            setEventId('');
             router.push('/feed');
         } catch (error) {
-            setStatus(getErrorMessage(error, 'Batch upload failed. Retry to upload all captures together.'));
+            const message = getErrorMessage(
+                error,
+                'Batch upload failed. Retry to upload all captures together.',
+            );
+            await saveToOfflineQueue(`${message}.`);
         } finally {
             setUploading(false);
         }
@@ -249,37 +302,24 @@ export function MultiCameraCapture() {
                     placeholder='Caption (required)'
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
-                <select
-                    value={eventId}
-                    onChange={(event) => setEventId(event.target.value)}
-                    disabled={uploading || eventsLoading}
-                    className='w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
-                >
-                    {eventsLoading ? (
-                        <option value=''>Loading tags...</option>
-                    ) : null}
-                    {!eventsLoading && !memberMustChooseTag ? (
-                        <option value=''>No specific tag</option>
-                    ) : null}
-                    {!eventsLoading &&
-                    memberMustChooseTag &&
-                    eventOptions.length > 0 &&
-                    !eventId ? (
-                        <option value=''>Select tag</option>
-                    ) : null}
-                    {eventOptions.map((eventOption) => (
-                        <option key={eventOption.id} value={eventOption.id}>
-                            {eventOption.name}
-                        </option>
-                    ))}
-                </select>
+                <div className='w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700'>
+                    <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
+                        Current event tag
+                    </p>
+                    <p className='mt-1 font-semibold text-slate-900'>
+                        {currentEventLoading
+                            ? 'Loading...'
+                            : currentEvent?.name ?? 'Not set by admin'}
+                    </p>
+                </div>
                 <p className='text-xs text-slate-500'>
-                    {memberMustChooseTag
-                        ? 'For members, one admin tag is required before posting.'
-                        : 'Assign an event tag so this post appears in Event folders and Date folder tags.'}
+                    Event tags are managed by admin. Every feed post is auto-tagged with the current event.
                 </p>
                 <p className='text-xs text-slate-500'>
                     Visibility: <span className='font-semibold capitalize'>{visibility}</span>
+                </p>
+                <p className='text-xs text-slate-500'>
+                    Pending uploads: <span className='font-semibold'>{pendingQueueCount}</span>
                 </p>
                 <button
                     type='button'

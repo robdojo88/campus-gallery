@@ -52,6 +52,7 @@ const EMPTY_SEARCH_RESULTS: GlobalSearchResults = {
 
 const links = [
     { href: '/feed', label: 'Feed', icon: 'feed' },
+    { href: '/trending', label: 'Trending Post', icon: 'feed' },
     { href: '/camera', label: 'Camera', icon: 'camera' },
     { href: '/gallery/date', label: 'Date Folders', icon: 'date' },
     { href: '/gallery/events', label: 'Events', icon: 'events' },
@@ -292,6 +293,10 @@ function isMobilePrimaryLink(href: string): boolean {
     );
 }
 
+function isDesktopPrimaryLink(href: string): boolean {
+    return isMobilePrimaryLink(href);
+}
+
 function normalizeRole(value: unknown): UserRole | null {
     if (value === 'admin' || value === 'member' || value === 'visitor')
         return value;
@@ -432,6 +437,8 @@ export function MainNav({
         useState<GlobalSearchResults>(EMPTY_SEARCH_RESULTS);
     const [searchStatus, setSearchStatus] = useState('');
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [menuOpenedFromDesktop, setMenuOpenedFromDesktop] = useState(false);
+    const [isTabletViewport, setIsTabletViewport] = useState(false);
     const mobileMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
     const mobileMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
     const mobileMenuPanelRef = useRef<HTMLDivElement | null>(null);
@@ -746,9 +753,13 @@ export function MainNav({
         }
         if (role === 'visitor') {
             return links.filter((link) =>
-                ['/feed', '/camera', '/visitor-gallery', '/reviews'].includes(
-                    link.href,
-                ),
+                [
+                    '/feed',
+                    '/trending',
+                    '/camera',
+                    '/visitor-gallery',
+                    '/reviews',
+                ].includes(link.href),
             );
         }
         if (role === 'admin') {
@@ -761,6 +772,21 @@ export function MainNav({
         () => centerLinks.filter((link) => isMobilePrimaryLink(link.href)),
         [centerLinks],
     );
+    const desktopLinks = useMemo(
+        () =>
+            isTabletViewport
+                ? centerLinks
+                : centerLinks.filter((link) => link.href !== '/trending'),
+        [centerLinks, isTabletViewport],
+    );
+    const desktopPrimaryLinks = useMemo(
+        () => desktopLinks.filter((link) => isDesktopPrimaryLink(link.href)),
+        [desktopLinks],
+    );
+    const desktopOverflowLinks = useMemo(
+        () => desktopLinks.filter((link) => !isMobilePrimaryLink(link.href)),
+        [desktopLinks],
+    );
     const mobileOverflowLinks = useMemo(
         () => centerLinks.filter((link) => !isMobilePrimaryLink(link.href)),
         [centerLinks],
@@ -771,6 +797,13 @@ export function MainNav({
                 isLinkActive(pathname, link.href),
             ),
         [mobileOverflowLinks, pathname],
+    );
+    const desktopOverflowActive = useMemo(
+        () =>
+            desktopOverflowLinks.some((link) =>
+                isLinkActive(pathname, link.href),
+            ),
+        [desktopOverflowLinks, pathname],
     );
     const adminQuickLinks = useMemo(
         () =>
@@ -784,6 +817,19 @@ export function MainNav({
 
     useEffect(() => {
         setHasHydrated(true);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const updateViewportMode = () => {
+            const width = window.innerWidth;
+            setIsTabletViewport(width >= 768 && width < 1024);
+        };
+        updateViewportMode();
+        window.addEventListener('resize', updateViewportMode);
+        return () => {
+            window.removeEventListener('resize', updateViewportMode);
+        };
     }, []);
 
     async function onLogout() {
@@ -822,13 +868,15 @@ export function MainNav({
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL'
+                                    alt='KATOL Galleria'
                                     fill
                                     className='object-cover'
                                     sizes='36px'
                                 />
                             </span>
-                            <span className='hidden sm:inline'>KATOL</span>
+                            <span className='hidden sm:inline'>
+                                KATOL Galleria
+                            </span>
                         </span>
                     ) : (
                         <Link
@@ -838,13 +886,15 @@ export function MainNav({
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL'
+                                    alt='KATOL Galleria'
                                     fill
                                     className='object-cover'
                                     sizes='36px'
                                 />
                             </span>
-                            <span className='hidden sm:inline'>KATOL</span>
+                            <span className='hidden sm:inline'>
+                                KATOL Galleria
+                            </span>
                         </Link>
                     )}
                     {navigationDisabled ? null : (
@@ -894,7 +944,7 @@ export function MainNav({
                                     }}
                                     placeholder='Search users, events, dates, posts...'
                                     className='w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-500'
-                                    aria-label='Search KATOL'
+                                    aria-label='Search KATOL Galleria'
                                 />
                             </form>
                             {searchOpen ? (
@@ -1180,17 +1230,18 @@ export function MainNav({
             </div>
             <nav className='mx-auto hidden w-full max-w-[1480px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-2 md:grid lg:px-8'>
                 <div className='flex items-center gap-2 justify-self-start rounded-2xl border border-slate-200/90 bg-white/80 px-2 py-1 shadow-sm backdrop-blur'>
-                    {mobileOverflowLinks.length > 0 ? (
+                    {desktopOverflowLinks.length > 0 ? (
                         <button
                             ref={mobileMenuDesktopButtonRef}
                             type='button'
-                            onClick={() =>
-                                setMobileMenuOpen((current) => !current)
-                            }
+                            onClick={() => {
+                                setMobileMenuOpen((current) => !current);
+                                setMenuOpenedFromDesktop(true);
+                            }}
                             aria-label='Open navigation'
                             aria-expanded={mobileMenuOpen}
                             className={`group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 ${
-                                mobileMenuOpen || mobileOverflowActive
+                                mobileMenuOpen || desktopOverflowActive
                                     ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
                                     : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                             }`}
@@ -1199,7 +1250,7 @@ export function MainNav({
                                 viewBox='0 0 24 24'
                                 aria-hidden='true'
                                 className={`h-5 w-5 ${
-                                    mobileMenuOpen || mobileOverflowActive
+                                    mobileMenuOpen || desktopOverflowActive
                                         ? 'text-blue-600'
                                         : 'text-slate-600'
                                 }`}
@@ -1221,7 +1272,7 @@ export function MainNav({
                             <span className='relative h-8 w-8 overflow-hidden rounded-full'>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL'
+                                    alt='KATOL Galleria'
                                     fill
                                     className='object-cover'
                                     sizes='32px'
@@ -1231,14 +1282,14 @@ export function MainNav({
                     ) : (
                         <Link
                             href='/'
-                            aria-label='KATOL home'
-                            title='KATOL'
+                            aria-label='KATOL Galleria home'
+                            title='KATOL Galleria'
                             className='group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                         >
                             <span className='relative h-8 w-8 overflow-hidden rounded-full'>
                                 <Image
                                     src={spiralLogoSrc}
-                                    alt='KATOL'
+                                    alt='KATOL Galleria'
                                     fill
                                     className='object-cover'
                                     sizes='32px'
@@ -1252,7 +1303,7 @@ export function MainNav({
                 </div>
 
                 <div className='flex items-center gap-1.5 justify-self-center rounded-2xl border border-slate-200/90 bg-white/80 px-2 py-1 shadow-sm backdrop-blur'>
-                    {mobilePrimaryLinks.map((link) => {
+                    {desktopPrimaryLinks.map((link) => {
                         const active = isLinkActive(pathname, link.href);
                         return (
                             <NavIconLink
@@ -1380,7 +1431,7 @@ export function MainNav({
                         <span className='relative h-7 w-7 overflow-hidden rounded-full'>
                             <Image
                                 src={spiralLogoSrc}
-                                alt='KATOL'
+                                alt='KATOL Galleria'
                                 fill
                                 className='object-cover'
                                 sizes='28px'
@@ -1390,14 +1441,14 @@ export function MainNav({
                 ) : (
                     <Link
                         href='/'
-                        aria-label='KATOL home'
-                        title='KATOL'
+                        aria-label='KATOL Galleria home'
+                        title='KATOL Galleria'
                         className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                     >
                         <span className='relative h-7 w-7 overflow-hidden rounded-full'>
                             <Image
                                 src={spiralLogoSrc}
-                                alt='KATOL'
+                                alt='KATOL Galleria'
                                 fill
                                 className='object-cover'
                                 sizes='28px'
@@ -1487,7 +1538,9 @@ export function MainNav({
             <AnimatePresence>
                 {!navigationDisabled &&
                 mobileMenuOpen &&
-                mobileOverflowLinks.length > 0 ? (
+                (menuOpenedFromDesktop
+                    ? desktopOverflowLinks.length > 0
+                    : mobileOverflowLinks.length > 0) ? (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -1498,7 +1551,10 @@ export function MainNav({
                         <motion.button
                             type='button'
                             aria-label='Close menu'
-                            onClick={() => setMobileMenuOpen(false)}
+                            onClick={() => {
+                                setMobileMenuOpen(false);
+                                setMenuOpenedFromDesktop(false);
+                            }}
                             className='absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]'
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -1532,7 +1588,10 @@ export function MainNav({
                                 </button>
                             </div>
                             <nav className='space-y-1 p-3'>
-                                {mobileOverflowLinks.map((link) => {
+                                {(menuOpenedFromDesktop
+                                    ? desktopOverflowLinks
+                                    : mobileOverflowLinks
+                                ).map((link) => {
                                     const active = isLinkActive(
                                         pathname,
                                         link.href,
@@ -1541,9 +1600,10 @@ export function MainNav({
                                         <Link
                                             key={`mobile-overflow-${link.href}`}
                                             href={link.href}
-                                            onClick={() =>
-                                                setMobileMenuOpen(false)
-                                            }
+                                            onClick={() => {
+                                                setMobileMenuOpen(false);
+                                                setMenuOpenedFromDesktop(false);
+                                            }}
                                             className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition ${
                                                 active
                                                     ? 'bg-blue-50 text-blue-700'
@@ -1604,9 +1664,3 @@ export function MainNav({
         </header>
     );
 }
-
-
-
-
-
-

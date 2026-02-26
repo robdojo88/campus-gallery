@@ -362,7 +362,8 @@ export default function FreedomWallPage() {
                     if (!current) return current;
                     return {
                         ...current,
-                        index: (current.index + 1) % activeLightboxImages.length,
+                        index:
+                            (current.index + 1) % activeLightboxImages.length,
                     };
                 });
             }
@@ -1209,7 +1210,7 @@ export default function FreedomWallPage() {
                     <PageHeader
                         eyebrow='Community'
                         title='Freedom Wall'
-                        description='Post text or image updates, like posts, and join nested comment threads.'
+                        description='Sabihin mo ang gusto mong sabihin, walang judgement dito. Pero syempre, be respectful and responsible sa mga i-popost mo.'
                     />
 
                     <motion.div
@@ -1225,7 +1226,7 @@ export default function FreedomWallPage() {
                                     onChange={(event) =>
                                         setContent(event.target.value)
                                     }
-                                    placeholder='Write a caption...'
+                                    placeholder="Tol, post mo na 'yang iniisip mo..."
                                     isDisabled={posting}
                                     minRows={3}
                                     maxRows={12}
@@ -1274,9 +1275,9 @@ export default function FreedomWallPage() {
                                                 }}
                                                 className='hidden'
                                             />
-                                            Choose Image
+                                            Baka trip mo lagyan ng picture?
                                         </label>
-                                        <span className='text-xs'>
+                                        <span className='text-xs pl-3'>
                                             Up to 4 images
                                         </span>
 
@@ -1314,7 +1315,7 @@ export default function FreedomWallPage() {
                                             // color='primary'
                                             className='min-w-16 text-sm font-semibold bg-[#0F172B] text-slate-50 rounded-xl border border-gray-200 hover:bg-[#2c3243] cursor-pointer'
                                         >
-                                            {posting ? 'Posting...' : 'Post'}
+                                            {posting ? 'Posting...' : "G' na!"}
                                         </Button>
                                     </div>
                                 </div>
@@ -1351,13 +1352,13 @@ export default function FreedomWallPage() {
                         </Card>
                     </motion.div>
 
-                    {status ? (
+                    {/* {status ? (
                         <Card className='mb-4 border border-slate-200 bg-white'>
                             <CardBody className='p-4 text-sm text-slate-600'>
                                 {status}
                             </CardBody>
                         </Card>
-                    ) : null}
+                    ) : null} */}
 
                     {!loading ? (
                         <section className='space-y-4'>
@@ -1781,8 +1782,7 @@ export default function FreedomWallPage() {
                                                     transition={{
                                                         duration: 0.9,
                                                         ease: 'linear',
-                                                        repeat:
-                                                            Number.POSITIVE_INFINITY,
+                                                        repeat: Number.POSITIVE_INFINITY,
                                                     }}
                                                 />
                                                 <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-white/90'>

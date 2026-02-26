@@ -116,7 +116,6 @@ begin
   into matched_first_name, matched_last_name
   from public.student_registry sr
   where upper(btrim(sr.usn)) = normalized_usn
-    and sr.status = 'active'
   limit 1;
 
   if found then

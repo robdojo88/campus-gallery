@@ -5,9 +5,18 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
-import { addPendingCapture } from '@/lib/offline-queue';
-import { fetchEventOptions, getCurrentUserProfile, uploadBatchCaptures, uploadCapturedImage } from '@/lib/supabase';
-import type { UserRole, Visibility } from '@/lib/types';
+import {
+    OFFLINE_QUEUE_CHANGED_EVENT,
+    addPendingCapture,
+    getPendingCaptures,
+} from '@/lib/offline-queue';
+import {
+    fetchCurrentEventTag,
+    getCurrentUserProfile,
+    uploadBatchCaptures,
+    uploadCapturedImage,
+} from '@/lib/supabase';
+import type { Visibility } from '@/lib/types';
 
 export function SingleCameraCapture() {
     const router = useRouter();
@@ -17,17 +26,19 @@ export function SingleCameraCapture() {
     const [captures, setCaptures] = useState<string[]>([]);
     const [activePreviewIndex, setActivePreviewIndex] = useState(0);
     const [caption, setCaption] = useState('');
-    const [eventId, setEventId] = useState('');
-    const [eventOptions, setEventOptions] = useState<Array<{ id: string; name: string }>>([]);
-    const [eventsLoading, setEventsLoading] = useState(true);
-    const [visibility, setVisibility] = useState<Visibility>('campus');
-    const [role, setRole] = useState<UserRole | null>(null);
+    const [currentEvent, setCurrentEvent] = useState<{
+        id: string;
+        name: string;
+    } | null>(null);
+    const [currentEventLoading, setCurrentEventLoading] = useState(true);
+    const [visibility, setVisibility] = useState<Visibility>('visitor');
+    const [visibilityResolved, setVisibilityResolved] = useState(false);
     const [online, setOnline] = useState(true);
     const [status, setStatus] = useState('');
     const [isCapturing, setIsCapturing] = useState(false);
     const [captureNotice, setCaptureNotice] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const memberMustChooseTag = role === 'member';
+    const [pendingQueueCount, setPendingQueueCount] = useState(0);
 
     useEffect(() => {
         const setNetwork = () => setOnline(navigator.onLine);
@@ -43,16 +54,52 @@ export function SingleCameraCapture() {
 
     useEffect(() => {
         let mounted = true;
+
+        async function refreshPendingQueueCount() {
+            try {
+                const pending = await getPendingCaptures();
+                if (mounted) {
+                    setPendingQueueCount(pending.length);
+                }
+            } catch {
+                if (mounted) {
+                    setPendingQueueCount(0);
+                }
+            }
+        }
+
+        const handleQueueChanged = () => {
+            void refreshPendingQueueCount();
+        };
+
+        void refreshPendingQueueCount();
+        window.addEventListener(OFFLINE_QUEUE_CHANGED_EVENT, handleQueueChanged);
+        window.addEventListener('focus', handleQueueChanged);
+
+        return () => {
+            mounted = false;
+            window.removeEventListener(
+                OFFLINE_QUEUE_CHANGED_EVENT,
+                handleQueueChanged,
+            );
+            window.removeEventListener('focus', handleQueueChanged);
+        };
+    }, []);
+
+    useEffect(() => {
+        let mounted = true;
         getCurrentUserProfile()
             .then((profile) => {
-                if (!mounted || !profile) return;
-                setRole(profile.role);
-                if (profile.role === 'visitor') setVisibility('visitor');
-                if (profile.role === 'member') setVisibility('campus');
+                if (!mounted) return;
+                setVisibility(profile?.role === 'visitor' ? 'visitor' : 'campus');
             })
             .catch(() => {
                 if (!mounted) return;
-                setRole(null);
+                setVisibility('visitor');
+            })
+            .finally(() => {
+                if (!mounted) return;
+                setVisibilityResolved(true);
             });
         return () => {
             mounted = false;
@@ -61,32 +108,35 @@ export function SingleCameraCapture() {
 
     useEffect(() => {
         let mounted = true;
-        async function loadEvents() {
+        async function loadCurrentEvent() {
             try {
-                const events = await fetchEventOptions();
+                const current = await fetchCurrentEventTag();
                 if (!mounted) return;
-                setEventOptions(events);
-            } catch {
+                setCurrentEvent(current);
+            } catch (error) {
                 if (!mounted) return;
-                setEventOptions([]);
+                setCurrentEvent(null);
+                if (navigator.onLine) {
+                    setStatus(
+                        getErrorMessage(
+                            error,
+                            'Failed to load current event tag.',
+                        ),
+                    );
+                } else {
+                    setStatus(
+                        'Offline mode - camera capture works and uploads will queue automatically.',
+                    );
+                }
             } finally {
-                if (mounted) setEventsLoading(false);
+                if (mounted) setCurrentEventLoading(false);
             }
         }
-        void loadEvents();
+        void loadCurrentEvent();
         return () => {
             mounted = false;
         };
     }, []);
-
-    useEffect(() => {
-        if (eventsLoading) return;
-        if (role !== 'member') return;
-        if (eventId) return;
-        const firstEventId = eventOptions[0]?.id ?? '';
-        if (!firstEventId) return;
-        setEventId(firstEventId);
-    }, [eventId, eventOptions, eventsLoading, role]);
 
     useEffect(() => {
         let stream: MediaStream | null = null;
@@ -118,11 +168,6 @@ export function SingleCameraCapture() {
         () => (online ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'),
         [online],
     );
-    const visibilityOptions = useMemo(() => {
-        if (role === 'visitor') return ['visitor'] as const;
-        if (role === 'member') return ['campus'] as const;
-        return ['campus', 'visitor'] as const;
-    }, [role]);
     const captureButtonLabel = isCapturing ? 'Capturing...' : captureNotice ? 'Captured!' : 'Capture';
 
     async function capture() {
@@ -174,43 +219,42 @@ export function SingleCameraCapture() {
             return;
         }
 
-        if (memberMustChooseTag) {
-            if (eventsLoading) {
-                setStatus('Tags are still loading. Please wait a moment.');
-                return;
-            }
-            if (eventOptions.length === 0) {
+        if (!visibilityResolved) {
+            setStatus('Resolving account visibility. Please wait a moment.');
+            return;
+        }
+
+        async function saveToOfflineQueue(prefix: string): Promise<boolean> {
+            try {
+                await addPendingCapture({
+                    id: crypto.randomUUID(),
+                    imageDataUrl: captures[0],
+                    captures: [...captures],
+                    caption: cleanedCaption,
+                    visibility,
+                    eventId: currentEvent?.id,
+                    createdAt: new Date().toISOString(),
+                });
+                const pending = await getPendingCaptures().catch(() => []);
+                const nextPendingCount = pending.length;
+                setPendingQueueCount(nextPendingCount);
                 setStatus(
-                    'No admin tags are available yet. Ask an admin to create tags first.',
+                    `${prefix} Saved locally as one pending post. Pending queue: ${nextPendingCount}. It will auto-upload when connection is stable.`,
                 );
-                return;
-            }
-            if (!eventId) {
-                setStatus('Select one admin tag before posting.');
-                return;
+                setCaptures([]);
+                setActivePreviewIndex(0);
+                setCaption('');
+                return true;
+            } catch (queueError) {
+                setStatus(
+                    `Failed to save offline queue: ${getErrorMessage(queueError, 'queue unavailable')}`,
+                );
+                return false;
             }
         }
 
         if (!online) {
-            await Promise.all(
-                captures.map((capture) =>
-                    addPendingCapture({
-                        id: crypto.randomUUID(),
-                        imageDataUrl: capture,
-                        caption: cleanedCaption,
-                        visibility,
-                        eventId: eventId || undefined,
-                        createdAt: new Date().toISOString(),
-                    }),
-                ),
-            );
-            setStatus(
-                `Offline - saved ${captures.length} capture${captures.length > 1 ? 's' : ''} locally. Upload will auto-resume when online.`,
-            );
-            setCaptures([]);
-            setActivePreviewIndex(0);
-            setCaption('');
-            setEventId('');
+            await saveToOfflineQueue('Offline.');
             return;
         }
 
@@ -220,24 +264,22 @@ export function SingleCameraCapture() {
                 await uploadCapturedImage(captures[0], {
                     caption: cleanedCaption,
                     visibility,
-                    eventId: eventId || undefined,
                 });
             } else {
                 await uploadBatchCaptures({
                     captures,
                     caption: cleanedCaption,
                     visibility,
-                    eventId: eventId || undefined,
                 });
             }
             setStatus(`Uploaded ${captures.length} capture${captures.length > 1 ? 's' : ''} as one post.`);
             setCaptures([]);
             setActivePreviewIndex(0);
             setCaption('');
-            setEventId('');
             router.push('/feed');
         } catch (error) {
-            setStatus(getErrorMessage(error, 'Upload failed.'));
+            const message = getErrorMessage(error, 'Upload failed.');
+            await saveToOfflineQueue(`${message}.`);
         } finally {
             setIsSubmitting(false);
         }
@@ -332,48 +374,31 @@ export function SingleCameraCapture() {
                     placeholder='Caption (required)'
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
-                <div className='grid gap-3 sm:grid-cols-2'>
-                    <select
-                        value={visibility}
-                        onChange={(event) => setVisibility(event.target.value as Visibility)}
-                        disabled={visibilityOptions.length === 1 || isSubmitting}
-                        className='rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
-                    >
-                        {visibilityOptions.map((option) => (
-                            <option key={option} value={option}>
-                                {option === 'campus' ? 'Campus visibility' : 'Visitor visibility'}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        value={eventId}
-                        onChange={(event) => setEventId(event.target.value)}
-                        disabled={isSubmitting || eventsLoading}
-                        className='rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
-                    >
-                        {eventsLoading ? (
-                            <option value=''>Loading tags...</option>
-                        ) : null}
-                        {!eventsLoading && !memberMustChooseTag ? (
-                            <option value=''>No specific tag</option>
-                        ) : null}
-                        {!eventsLoading &&
-                        memberMustChooseTag &&
-                        eventOptions.length > 0 &&
-                        !eventId ? (
-                            <option value=''>Select tag</option>
-                        ) : null}
-                        {eventOptions.map((eventOption) => (
-                            <option key={eventOption.id} value={eventOption.id}>
-                                {eventOption.name}
-                            </option>
-                        ))}
-                    </select>
+                <div className='grid gap-3'>
+                    <div className='rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700'>
+                        <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
+                            Visibility
+                        </p>
+                        <p className='mt-1 font-semibold capitalize text-slate-900'>
+                            {visibility}
+                        </p>
+                    </div>
+                    <div className='rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700'>
+                        <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
+                            Current event tag
+                        </p>
+                        <p className='mt-1 font-semibold text-slate-900'>
+                            {currentEventLoading
+                                ? 'Loading...'
+                                : currentEvent?.name ?? 'Not set by admin'}
+                        </p>
+                    </div>
                 </div>
                 <p className='text-xs text-slate-500'>
-                    {memberMustChooseTag
-                        ? 'For members, one admin tag is required before posting.'
-                        : 'Assign an event tag so this post appears in Event folders and Date folder tags.'}
+                    Event tags are managed by admin. Every feed post is auto-tagged with the current event.
+                </p>
+                <p className='text-xs text-slate-500'>
+                    Pending uploads: <span className='font-semibold'>{pendingQueueCount}</span>
                 </p>
                 <button
                     type='button'
@@ -397,7 +422,7 @@ export function SingleCameraCapture() {
                     </button>
                 ) : null}
                 {status ? <p className='text-sm text-slate-700'>{status}</p> : null}
-                {role === 'visitor' ? (
+                {visibility === 'visitor' ? (
                     <p className='text-xs text-slate-500'>Visitor accounts can only publish to visitor visibility.</p>
                 ) : null}
                 <p className='text-xs text-slate-500'>

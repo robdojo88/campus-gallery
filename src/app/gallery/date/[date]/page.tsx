@@ -10,7 +10,11 @@ import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PageHeader } from '@/components/ui/page-header';
-import { fetchDateFolderPosts, getCurrentUserProfile } from '@/lib/supabase';
+import {
+    fetchDateFolderPosts,
+    getCurrentUserProfile,
+    logAdminAuditAction,
+} from '@/lib/supabase';
 import type { UserRole } from '@/lib/types';
 
 type DateFolderImage = {
@@ -235,6 +239,21 @@ export default function DateFolderDetailPage() {
             setDownloadStatus(
                 `Downloaded ${archiveName} with ${images.length} image(s).`,
             );
+
+            if (role === 'admin') {
+                try {
+                    await logAdminAuditAction({
+                        action: 'gallery_images_downloaded',
+                        details: {
+                            folderDate,
+                            archiveName,
+                            imageCount: images.length,
+                        },
+                    });
+                } catch {
+                    // Keep download successful even if audit logging is unavailable.
+                }
+            }
         } catch (error) {
             const message =
                 error instanceof Error

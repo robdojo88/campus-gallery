@@ -48,6 +48,18 @@ create table if not exists public.events (
 alter table public.events
 add column if not exists created_by uuid references public.users(id);
 
+create table if not exists public.app_settings (
+  id boolean primary key default true,
+  current_event_id uuid references public.events(id) on delete set null,
+  updated_by uuid references public.users(id),
+  updated_at timestamptz not null default now(),
+  constraint app_settings_singleton check (id)
+);
+
+insert into public.app_settings (id)
+values (true)
+on conflict (id) do nothing;
+
 create table if not exists public.posts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -102,6 +114,23 @@ begin
   end if;
 end
 $$;
+
+create table if not exists public.admin_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid not null references public.users(id) on delete cascade,
+  action text not null,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists admin_audit_logs_created_at_idx
+on public.admin_audit_logs (created_at desc);
+
+create index if not exists admin_audit_logs_admin_created_at_idx
+on public.admin_audit_logs (admin_user_id, created_at desc);
+
+create index if not exists admin_audit_logs_action_created_at_idx
+on public.admin_audit_logs (action, created_at desc);
 
 create or replace function public.enforce_freedom_comment_reply_depth()
 returns trigger
@@ -793,6 +822,7 @@ for each row execute procedure public.notify_event_created();
 
 alter table public.users enable row level security;
 alter table public.events enable row level security;
+alter table public.app_settings enable row level security;
 alter table public.posts enable row level security;
 alter table public.post_images enable row level security;
 alter table public.likes enable row level security;
@@ -808,6 +838,7 @@ alter table public.incognito_comments enable row level security;
 alter table public.incognito_comment_likes enable row level security;
 alter table public.notifications enable row level security;
 alter table public.reviews enable row level security;
+alter table public.admin_audit_logs enable row level security;
 
 drop policy if exists users_select_auth on public.users;
 create policy users_select_auth on public.users for select to authenticated using (true);
@@ -831,6 +862,30 @@ create policy events_admin_write on public.events
 for all to authenticated
 using (public.is_admin())
 with check (public.is_admin());
+
+drop policy if exists app_settings_select_auth on public.app_settings;
+create policy app_settings_select_auth on public.app_settings
+for select to authenticated
+using (true);
+
+drop policy if exists app_settings_admin_write on public.app_settings;
+create policy app_settings_admin_write on public.app_settings
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists admin_audit_logs_select_admin on public.admin_audit_logs;
+create policy admin_audit_logs_select_admin on public.admin_audit_logs
+for select to authenticated
+using (public.is_admin());
+
+drop policy if exists admin_audit_logs_insert_admin_self on public.admin_audit_logs;
+create policy admin_audit_logs_insert_admin_self on public.admin_audit_logs
+for insert to authenticated
+with check (
+  public.is_admin()
+  and admin_user_id = auth.uid()
+);
 
 drop policy if exists posts_select_by_role on public.posts;
 create policy posts_select_by_role on public.posts
@@ -1178,6 +1233,13 @@ do $$
 begin
   if not exists (
     select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'users'
+  ) then
+    alter publication supabase_realtime add table public.users;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'posts'
   ) then
     alter publication supabase_realtime add table public.posts;
@@ -1321,6 +1383,20 @@ begin
       and tablename = 'notifications'
   ) then
     alter publication supabase_realtime add table public.notifications;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'admin_audit_logs'
+  ) then
+    alter publication supabase_realtime add table public.admin_audit_logs;
   end if;
 end
 $$;
