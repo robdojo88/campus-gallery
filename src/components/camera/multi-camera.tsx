@@ -17,6 +17,17 @@ import {
 } from '@/lib/supabase';
 import type { Visibility } from '@/lib/types';
 
+const NAV_ROLE_CACHE_KEY = 'campus_gallery_nav_role';
+
+function getFallbackVisibilityFromCachedRole(): Visibility {
+    if (typeof window === 'undefined') return 'campus';
+    const cachedRole = window.localStorage
+        .getItem(NAV_ROLE_CACHE_KEY)
+        ?.trim()
+        .toLowerCase();
+    return cachedRole === 'visitor' ? 'visitor' : 'campus';
+}
+
 export function MultiCameraCapture() {
     const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -79,7 +90,7 @@ export function MultiCameraCapture() {
             })
             .catch(() => {
                 if (!mounted) return;
-                setVisibility('visitor');
+                setVisibility(getFallbackVisibilityFromCachedRole());
             })
             .finally(() => {
                 if (!mounted) return;

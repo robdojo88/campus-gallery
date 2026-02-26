@@ -1502,6 +1502,13 @@ async function resolveUploadEventId(
     return requireCurrentEventTag(supabase);
 }
 
+function resolveEffectivePostVisibility(
+    role: UserRole | null,
+): Visibility {
+    if (role === 'visitor') return 'visitor';
+    return 'campus';
+}
+
 export async function fetchCurrentEventTag(): Promise<
     { id: string; name: string } | null
 > {
@@ -1590,6 +1597,7 @@ export async function uploadCapturedImage(
     } catch {
         role = null;
     }
+    const effectiveVisibility = resolveEffectivePostVisibility(role);
     const cleanedCaption = requirePostCaption(options.caption);
     const enforcedEventId = await resolveUploadEventId(
         supabase,
@@ -1600,7 +1608,7 @@ export async function uploadCapturedImage(
         userId: user.id,
         imageDataUrl,
         caption: cleanedCaption,
-        visibility: options.visibility ?? 'campus',
+        visibility: effectiveVisibility,
         eventId: enforcedEventId,
     });
 
@@ -1610,7 +1618,7 @@ export async function uploadCapturedImage(
             user_id: user.id,
             image_url: uploaded.publicUrl,
             caption: cleanedCaption,
-            visibility: options.visibility ?? 'campus',
+            visibility: effectiveVisibility,
             event_id: enforcedEventId,
         })
         .select('id')
@@ -1639,7 +1647,7 @@ export async function uploadCapturedImage(
             details: {
                 postId: postRow.id,
                 imageCount: 1,
-                visibility: options.visibility ?? 'campus',
+                visibility: effectiveVisibility,
                 eventId: enforcedEventId,
             },
         });
@@ -1663,6 +1671,7 @@ export async function uploadBatchCaptures(input: {
     } catch {
         role = null;
     }
+    const effectiveVisibility = resolveEffectivePostVisibility(role);
     if (input.captures.length === 0) throw new Error('No captures to upload.');
     const cleanedCaption = requirePostCaption(input.caption);
     const enforcedEventId = await resolveUploadEventId(
@@ -1677,7 +1686,7 @@ export async function uploadBatchCaptures(input: {
                 userId: user.id,
                 imageDataUrl,
                 caption: cleanedCaption,
-                visibility: input.visibility ?? 'campus',
+                visibility: effectiveVisibility,
                 eventId: enforcedEventId,
             });
             createdFiles.push(uploaded);
@@ -1694,7 +1703,7 @@ export async function uploadBatchCaptures(input: {
                 user_id: user.id,
                 image_url: coverUrl,
                 caption: cleanedCaption,
-                visibility: input.visibility ?? 'campus',
+                visibility: effectiveVisibility,
                 event_id: enforcedEventId,
             })
             .select('id')
@@ -1725,7 +1734,7 @@ export async function uploadBatchCaptures(input: {
                 details: {
                     postId: postRow.id,
                     imageCount: imageRows.length,
-                    visibility: input.visibility ?? 'campus',
+                    visibility: effectiveVisibility,
                     eventId: enforcedEventId,
                 },
             });
@@ -1753,6 +1762,7 @@ export async function createPostWithImages(input: {
     } catch {
         role = null;
     }
+    const effectiveVisibility = resolveEffectivePostVisibility(role);
     if (input.imageUrls.length === 0) throw new Error('No images for post.');
     const cleanedCaption = requirePostCaption(input.caption);
     const enforcedEventId = await resolveUploadEventId(
@@ -1767,7 +1777,7 @@ export async function createPostWithImages(input: {
             user_id: user.id,
             image_url: coverUrl,
             caption: cleanedCaption,
-            visibility: input.visibility ?? 'campus',
+            visibility: effectiveVisibility,
             event_id: enforcedEventId,
         })
         .select('id')
@@ -1797,7 +1807,7 @@ export async function createPostWithImages(input: {
             details: {
                 postId: postRow.id,
                 imageCount: imageRows.length,
-                visibility: input.visibility ?? 'campus',
+                visibility: effectiveVisibility,
                 eventId: enforcedEventId,
             },
         });
