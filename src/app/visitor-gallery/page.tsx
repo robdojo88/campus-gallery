@@ -61,35 +61,39 @@ export default function VisitorGalleryPage() {
     return (
         <AuthGuard roles={['admin', 'member', 'visitor']}>
             <AppShell>
-                <PageHeader
-                    eyebrow='Visitors'
-                    title='Visitor Gallery'
-                    description='Feed-style visitor timeline. Like and comment interactions are hidden on this page.'
-                />
-                {effectiveStatus ? (
-                    <Card className='mb-4 border border-slate-200 bg-white'>
-                        <CardBody className='p-4 text-sm text-slate-600'>
-                            {effectiveStatus}
-                        </CardBody>
-                    </Card>
-                ) : null}
-                <section className='mx-auto w-full max-w-3xl space-y-3'>
-                    {visitorPosts.map((post) => (
-                        <PostCard
-                            key={`${post.id}-${post.likes}-${post.comments}`}
-                            post={post}
-                            showEngagement={false}
-                            isAdminViewer={viewerRole === 'admin' ? true : null}
-                            onPostDeleted={(deletedPostId) => {
-                                setVisitorPosts((prev) =>
-                                    prev.filter(
-                                        (item) => item.id !== deletedPostId,
-                                    ),
-                                );
-                            }}
-                        />
-                    ))}
-                </section>
+                <div className='mx-auto w-full max-w-4xl'>
+                    <PageHeader
+                        eyebrow='Visitors'
+                        title='Visitor Gallery'
+                        description='Feed-style visitor timeline. Like and comment interactions are hidden on this page.'
+                    />
+                    {effectiveStatus ? (
+                        <Card className='mb-4 border border-slate-200 bg-white'>
+                            <CardBody className='p-4 text-sm text-slate-600'>
+                                {effectiveStatus}
+                            </CardBody>
+                        </Card>
+                    ) : null}
+                    <section className='space-y-3'>
+                        {visitorPosts.map((post) => (
+                            <PostCard
+                                key={`${post.id}-${post.likes}-${post.comments}`}
+                                post={post}
+                                showEngagement={false}
+                                isAdminViewer={
+                                    viewerRole === 'admin' ? true : null
+                                }
+                                onPostDeleted={(deletedPostId) => {
+                                    setVisitorPosts((prev) =>
+                                        prev.filter(
+                                            (item) => item.id !== deletedPostId,
+                                        ),
+                                    );
+                                }}
+                            />
+                        ))}
+                    </section>
+                </div>
             </AppShell>
         </AuthGuard>
     );

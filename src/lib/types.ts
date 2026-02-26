@@ -24,7 +24,6 @@ export interface StudentRegistryEntry {
     fullName: string;
     course?: string;
     yearLevel?: number;
-    email: string;
     status: StudentRegistryStatus;
     createdAt: string;
     updatedAt: string;
@@ -36,7 +35,6 @@ export interface StudentRegistryUpsertInput {
     lastName: string;
     course?: string;
     yearLevel?: number;
-    email: string;
     status?: StudentRegistryStatus;
 }
 
@@ -68,6 +66,7 @@ export interface FreedomPost {
     authorAvatarUrl?: string;
     content: string;
     imageUrl?: string;
+    images?: string[];
     likes: number;
     comments: number;
     likedByCurrentUser?: boolean;

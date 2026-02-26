@@ -9,17 +9,18 @@ create table if not exists public.student_registry (
   last_name text not null,
   course text,
   year_level int check (year_level is null or year_level between 1 and 12),
-  email text not null,
   status text not null default 'active' check (status in ('active', 'inactive')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+alter table public.student_registry
+  drop column if exists email;
+
+drop index if exists student_registry_email_unique_idx;
+
 create unique index if not exists student_registry_usn_unique_idx
 on public.student_registry (usn);
-
-create unique index if not exists student_registry_email_unique_idx
-on public.student_registry (email);
 
 create index if not exists student_registry_last_name_idx
 on public.student_registry (last_name, first_name);
@@ -34,7 +35,6 @@ begin
   new.first_name := initcap(lower(btrim(coalesce(new.first_name, ''))));
   new.last_name := initcap(lower(btrim(coalesce(new.last_name, ''))));
   new.course := nullif(initcap(lower(btrim(coalesce(new.course, '')))), '');
-  new.email := lower(btrim(coalesce(new.email, '')));
   new.status := lower(coalesce(nullif(btrim(new.status), ''), 'active'));
   new.updated_at := now();
 
@@ -46,9 +46,6 @@ begin
   end if;
   if new.last_name = '' then
     raise exception 'Last name is required.';
-  end if;
-  if new.email = '' then
-    raise exception 'Email is required.';
   end if;
   if new.status not in ('active', 'inactive') then
     raise exception 'Status must be active or inactive.';
@@ -69,7 +66,6 @@ set
   first_name = initcap(lower(btrim(coalesce(first_name, '')))),
   last_name = initcap(lower(btrim(coalesce(last_name, '')))),
   course = nullif(initcap(lower(btrim(coalesce(course, '')))), ''),
-  email = lower(btrim(coalesce(email, ''))),
   status = lower(coalesce(nullif(btrim(status), ''), 'active')),
   updated_at = now();
 
@@ -109,3 +105,4 @@ begin
   end if;
 end
 $$;
+

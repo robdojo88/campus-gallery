@@ -1,5 +1,268 @@
 @import 'tailwindcss';
 
+html.dark {
+    --app-surface-0: 15 23 42;
+    --app-surface-1: 17 24 39;
+    --app-surface-2: 30 41 59;
+    --app-surface-3: 51 65 85;
+    --app-border-0: 71 85 105;
+    --app-border-1: 100 116 139;
+    --app-text-strong: 248 250 252;
+    --app-text-main: 226 232 240;
+    --app-text-muted: 148 163 184;
+    --app-text-soft: 100 116 139;
+}
+
+html.dark body {
+    background-color: rgb(2 6 23);
+    color: rgb(var(--app-text-main));
+}
+
+html.dark .bg-white {
+    background-color: rgb(var(--app-surface-0)) !important;
+}
+
+html.dark .bg-white\/95 {
+    background-color: rgb(var(--app-surface-0) / 0.95) !important;
+}
+
+html.dark .bg-white\/90 {
+    background-color: rgb(var(--app-surface-0) / 0.9) !important;
+}
+
+html.dark .bg-white\/85 {
+    background-color: rgb(var(--app-surface-0) / 0.85) !important;
+}
+
+html.dark .bg-white\/80 {
+    background-color: rgb(var(--app-surface-0) / 0.8) !important;
+}
+
+html.dark .bg-white\/78 {
+    background-color: rgb(var(--app-surface-0) / 0.78) !important;
+}
+
+html.dark .bg-white\/75 {
+    background-color: rgb(var(--app-surface-0) / 0.75) !important;
+}
+
+html.dark .bg-white\/70 {
+    background-color: rgb(var(--app-surface-0) / 0.7) !important;
+}
+
+html.dark .bg-white\/60 {
+    background-color: rgb(var(--app-surface-0) / 0.6) !important;
+}
+
+html.dark .bg-white\/55 {
+    background-color: rgb(var(--app-surface-0) / 0.55) !important;
+}
+
+html.dark .bg-white\/45 {
+    background-color: rgb(var(--app-surface-0) / 0.45) !important;
+}
+
+html.dark .hover\:bg-white:hover {
+    background-color: rgb(var(--app-surface-2) / 0.9) !important;
+}
+
+html.dark .bg-slate-50 {
+    background-color: rgb(var(--app-surface-1)) !important;
+}
+
+html.dark .bg-slate-50\/80 {
+    background-color: rgb(var(--app-surface-1) / 0.8) !important;
+}
+
+html.dark .bg-slate-100 {
+    background-color: rgb(var(--app-surface-2)) !important;
+}
+
+html.dark .bg-slate-100\/80 {
+    background-color: rgb(var(--app-surface-2) / 0.8) !important;
+}
+
+html.dark .bg-slate-200 {
+    background-color: rgb(var(--app-surface-3)) !important;
+}
+
+html.dark .bg-slate-200\/70 {
+    background-color: rgb(var(--app-surface-3) / 0.7) !important;
+}
+
+html.dark .bg-slate-300 {
+    background-color: rgb(var(--app-border-0)) !important;
+}
+
+html.dark .bg-slate-300\/35 {
+    background-color: rgb(var(--app-border-0) / 0.35) !important;
+}
+
+html.dark .bg-slate-300\/25 {
+    background-color: rgb(var(--app-border-0) / 0.25) !important;
+}
+
+html.dark .hover\:bg-slate-50:hover {
+    background-color: rgb(var(--app-surface-2) / 0.9) !important;
+}
+
+html.dark .hover\:bg-slate-100:hover {
+    background-color: rgb(var(--app-surface-3) / 0.75) !important;
+}
+
+html.dark .border-slate-200 {
+    border-color: rgb(var(--app-border-0)) !important;
+}
+
+html.dark .border-slate-200\/90 {
+    border-color: rgb(var(--app-border-0) / 0.9) !important;
+}
+
+html.dark .border-slate-200\/80 {
+    border-color: rgb(var(--app-border-0) / 0.8) !important;
+}
+
+html.dark .border-slate-300 {
+    border-color: rgb(var(--app-border-1)) !important;
+}
+
+html.dark .ring-slate-200 {
+    --tw-ring-color: rgb(var(--app-border-0)) !important;
+}
+
+html.dark .border-white {
+    border-color: rgb(var(--app-border-0) / 0.95) !important;
+}
+
+html.dark .border-white\/85 {
+    border-color: rgb(var(--app-border-0) / 0.85) !important;
+}
+
+html.dark .border-white\/80 {
+    border-color: rgb(var(--app-border-0) / 0.8) !important;
+}
+
+html.dark .border-white\/75 {
+    border-color: rgb(var(--app-border-0) / 0.75) !important;
+}
+
+html.dark .border-white\/70 {
+    border-color: rgb(var(--app-border-0) / 0.7) !important;
+}
+
+html.dark .border-white\/65 {
+    border-color: rgb(var(--app-border-0) / 0.65) !important;
+}
+
+html.dark .border-white\/20 {
+    border-color: rgb(var(--app-border-0) / 0.2) !important;
+}
+
+html.dark .text-slate-900 {
+    color: rgb(var(--app-text-strong)) !important;
+}
+
+html.dark .text-slate-800 {
+    color: rgb(var(--app-text-main)) !important;
+}
+
+html.dark .text-slate-700 {
+    color: rgb(var(--app-text-main)) !important;
+}
+
+html.dark .text-slate-600 {
+    color: rgb(var(--app-text-muted)) !important;
+}
+
+html.dark .text-slate-500 {
+    color: rgb(var(--app-text-soft)) !important;
+}
+
+html.dark .text-slate-400 {
+    color: rgb(var(--app-text-soft)) !important;
+}
+
+html.dark .text-slate-200 {
+    color: rgb(var(--app-border-1)) !important;
+}
+
+html.dark .text-slate-100 {
+    color: rgb(var(--app-border-0)) !important;
+}
+
+html.dark .from-white\/95 {
+    --tw-gradient-from: rgb(var(--app-surface-0) / 0.95)
+        var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgb(var(--app-surface-0) / 0)
+        var(--tw-gradient-to-position) !important;
+}
+
+html.dark .from-white\/92 {
+    --tw-gradient-from: rgb(var(--app-surface-0) / 0.92)
+        var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgb(var(--app-surface-0) / 0)
+        var(--tw-gradient-to-position) !important;
+}
+
+html.dark .from-white\/90 {
+    --tw-gradient-from: rgb(var(--app-surface-0) / 0.9)
+        var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgb(var(--app-surface-0) / 0)
+        var(--tw-gradient-to-position) !important;
+}
+
+html.dark .from-white\/88 {
+    --tw-gradient-from: rgb(var(--app-surface-0) / 0.88)
+        var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgb(var(--app-surface-0) / 0)
+        var(--tw-gradient-to-position) !important;
+}
+
+html.dark .via-white\/90 {
+    --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--app-surface-1) / 0.9)
+        var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark .via-white\/84 {
+    --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--app-surface-1) / 0.84)
+        var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark .via-white\/82 {
+    --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--app-surface-1) / 0.82)
+        var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark .via-white\/80 {
+    --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--app-surface-1) / 0.8)
+        var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark .via-white\/78 {
+    --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--app-surface-1) / 0.78)
+        var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark .to-slate-100\/85 {
+    --tw-gradient-to: rgb(var(--app-surface-2) / 0.85)
+        var(--tw-gradient-to-position) !important;
+}
+
+html.dark .to-slate-100\/75 {
+    --tw-gradient-to: rgb(var(--app-surface-2) / 0.75)
+        var(--tw-gradient-to-position) !important;
+}
+
+html.dark .to-slate-100\/74 {
+    --tw-gradient-to: rgb(var(--app-surface-2) / 0.74)
+        var(--tw-gradient-to-position) !important;
+}
+
+html.dark .to-slate-100\/70 {
+    --tw-gradient-to: rgb(var(--app-surface-2) / 0.7)
+        var(--tw-gradient-to-position) !important;
+}
+
 .scroll-shadow-fade-y {
     overflow-y: auto;
     -ms-overflow-style: none;

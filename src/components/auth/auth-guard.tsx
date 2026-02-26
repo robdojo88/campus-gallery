@@ -109,7 +109,7 @@ export function AuthGuard({
     if (loading) {
         return (
             <AppShell>
-                <div className='mx-auto w-full max-w-3xl'>
+                <div className='mx-auto w-full max-w-4xl'>
                     <SessionLoader fullscreen={false} />
                 </div>
             </AppShell>

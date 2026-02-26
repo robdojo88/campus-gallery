@@ -18,6 +18,7 @@ import {
 import type { UserRole } from '@/lib/types';
 
 const NAV_ROLE_CACHE_KEY = 'campus_gallery_nav_role';
+const MIN_TREND_INTERACTIONS = 5;
 
 function normalizeRole(value: unknown): UserRole | null {
     if (value === 'admin' || value === 'member' || value === 'visitor')
@@ -179,6 +180,7 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                         tag: item.tag,
                         count: item.uniqueUsers,
                     }))
+                    .filter((item) => item.count >= MIN_TREND_INTERACTIONS)
                     .sort((a, b) =>
                         b.count !== a.count
                             ? b.count - a.count
@@ -189,40 +191,49 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                 const nextFreedomItems = limitedVisitorMode
                     ? []
                     : sortByTrendScore(
-                          freedomPosts.map((post) => {
-                              const engagement = resolveTrendingEngagement(
-                                  insights.freedom[post.id],
-                                  post.likes,
-                                  post.comments,
-                              );
+                          freedomPosts
+                              .map((post) => {
+                                  const engagement = resolveTrendingEngagement(
+                                      insights.freedom[post.id],
+                                      post.likes,
+                                      post.comments,
+                                  );
 
-                              return {
-                                  key: `freedom-${post.id}`,
-                                  source: 'Freedom Wall' as const,
-                                  href: `/freedom-wall?post=${encodeURIComponent(post.id)}`,
-                                  title: normalizePreviewText(
-                                      post.content,
-                                      'Freedom Wall post',
-                                  ),
-                                  likes: engagement.likes,
-                                  comments: engagement.comments,
-                                  uniqueLikeUsers: engagement.uniqueLikeUsers,
-                                  uniqueCommentUsers:
-                                      engagement.uniqueCommentUsers,
-                                  uniqueInteractionUsers:
-                                      engagement.uniqueInteractionUsers,
-                                  trendScore: calculateTrendScore(engagement),
-                                  createdAt: post.createdAt,
-                                  previewImages: [],
-                              };
-                          }),
+                                  return {
+                                      key: `freedom-${post.id}`,
+                                      source: 'Freedom Wall' as const,
+                                      href: `/freedom-wall?post=${encodeURIComponent(post.id)}`,
+                                      title: normalizePreviewText(
+                                          post.content,
+                                          'Freedom Wall post',
+                                      ),
+                                      likes: engagement.likes,
+                                      comments: engagement.comments,
+                                      uniqueLikeUsers:
+                                          engagement.uniqueLikeUsers,
+                                      uniqueCommentUsers:
+                                          engagement.uniqueCommentUsers,
+                                      uniqueInteractionUsers:
+                                          engagement.uniqueInteractionUsers,
+                                      trendScore:
+                                          calculateTrendScore(engagement),
+                                      createdAt: post.createdAt,
+                                      previewImages: [],
+                                  };
+                              })
+                              .filter(
+                                  (item) =>
+                                      item.uniqueInteractionUsers >=
+                                      MIN_TREND_INTERACTIONS,
+                              ),
                       ).slice(0, 5);
 
                 if (!mounted) return;
                 setHashtags(nextHashtags);
                 setFreedomItems(nextFreedomItems);
                 setStatus(
-                    nextHashtags.length === 0 && nextFreedomItems.length === 0
+                    nextHashtags.length === 0 &&
+                        nextFreedomItems.length === 0
                         ? 'No trends yet.'
                         : '',
                 );
@@ -255,11 +266,11 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
 
     return (
         <aside className='hidden xl:block'>
-            <div className='fixed top-20 w-60 space-y-4'>
+            <div className='fixed top-20 max-w-60 space-y-4'>
                 {/* <Card className='border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur'> */}
                 <Card className=''>
                     <CardBody className='p-0'>
-                        <div className='border-b border-slate-200/90 px-4 py-3'>
+                        <div className='border-b border-slate-200/90 py-3'>
                             <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
                                 Trending Hashtags
                             </p>
@@ -270,7 +281,7 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                         <ScrollShadow
                             hideScrollBar
                             size={80}
-                            className='scroll-shadow-fade-y max-h-[calc(100vh-30rem)] px-3 py-3'
+                            className='scroll-shadow-fade-y max-h-[calc(100vh-30rem)] py-3'
                         >
                             {loading ? (
                                 <div className='space-y-2'>
@@ -285,7 +296,7 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                                 </p>
                             ) : null}
                             {!loading && hashtags.length > 0 ? (
-                                <div className='space-y-1.5'>
+                                <div className='space-y-'>
                                     {hashtags.map((item, index) => (
                                         <Link
                                             key={item.tag}
@@ -294,10 +305,13 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                                         >
                                             <div className='min-w-0'>
                                                 <p className='truncate text-sm font-semibold text-slate-800'>
-                                                    Top {index + 1} - {item.tag}
+                                                    <span className='text-cyan-500'>
+                                                        {index + 1}
+                                                    </span>{' '}
+                                                    {item.tag}
                                                 </p>
-                                                <p className='text-[11px] font-medium text-slate-500'>
-                                                    {item.count} users
+                                                <p className='text-[11px] pl-2 font-medium text-slate-500'>
+                                                    {item.count} tag
                                                 </p>
                                             </div>
                                         </Link>
@@ -312,7 +326,7 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                     // <Card className='border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur'>
                     <Card className=''>
                         <CardBody className='p-0'>
-                            <div className='border-b border-slate-200/90 px-4 py-3'>
+                            <div className='border-b border-slate-200/90 pb-3'>
                                 <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
                                     Trending Freedom Wall
                                 </p>
@@ -323,7 +337,7 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                             <ScrollShadow
                                 hideScrollBar
                                 size={80}
-                                className='scroll-shadow-fade-y max-h-[calc(100vh-27rem)] px-3 py-3'
+                                className='scroll-shadow-fade-y max-h-[calc(100vh-27rem)] py-3'
                             >
                                 {loading ? (
                                     <div className='space-y-2'>
@@ -338,20 +352,23 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                                 ) : null}
                                 {!loading && freedomItems.length > 0 ? (
                                     <div className='space-y-2'>
-                                        {freedomItems.map((item) => (
+                                        {freedomItems.map((item, index) => (
                                             <Link
                                                 key={item.key}
                                                 href={item.href}
                                                 className='block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 transition hover:border-blue-200 hover:bg-blue-50/40'
                                             >
                                                 <p className='line-clamp-2 text-sm font-medium text-slate-800'>
+                                                    <span className='text-cyan-500 pr-1'>
+                                                        {index + 1}
+                                                    </span>{' '}
                                                     {item.title}
                                                 </p>
                                                 <p className='mt-1 text-[11px] text-slate-500'>
                                                     {
                                                         item.uniqueInteractionUsers
                                                     }{' '}
-                                                    users
+                                                    interactions
                                                 </p>
                                             </Link>
                                         ))}
@@ -422,7 +439,13 @@ function RightSidebar({ role }: { role: UserRole | null }) {
                             ]),
                         };
                     }),
-                ).slice(0, 6);
+                )
+                    .filter(
+                        (item) =>
+                            item.uniqueInteractionUsers >=
+                            MIN_TREND_INTERACTIONS,
+                    )
+                    .slice(0, 6);
 
                 if (!mounted) return;
 
@@ -489,12 +512,12 @@ function RightSidebar({ role }: { role: UserRole | null }) {
 
     return (
         <aside className='hidden xl:block'>
-            <div className='fixed top-20 w-[320px]'>
+            <div className='fixed top-20 w-80'>
                 {/* <Card className='max-h-[calc(100vh-6rem)] border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur'> */}
                 <Card className='max-h-[calc(100vh-6rem)]'>
                     <CardBody className='p-0'>
                         {/* <div className='sticky top-0 z-20 border-b border-slate-200/90 bg-white/95 px-4 py-3 backdrop-blur'> */}
-                        <div className='sticky top-0 z-20 px-4 py-3 '>
+                        <div className='sticky top-0 z-20 py-3 '>
                             <p className='text-xs font-semibold uppercase tracking-[0.15em] text-slate-500'>
                                 Trending Feeds
                             </p>
@@ -506,7 +529,7 @@ function RightSidebar({ role }: { role: UserRole | null }) {
                         <ScrollShadow
                             hideScrollBar
                             size={80}
-                            className='scroll-shadow-fade-y max-h-[calc(100vh-10.5rem)] px-4 py-3'
+                            className='scroll-shadow-fade-y max-h-[calc(100vh-10.5rem)] py-3'
                         >
                             {loading ? (
                                 <div className='space-y-2'>
@@ -714,7 +737,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <div className='min-h-screen'>
             <OfflineSync />
             <MainNav disableNavigation={isSuspended} />
-            <div className='mx-auto w-full max-w-370 px-3 pb-10 pt-5 md:px-2 md:pt-5 lg:px-8'>
+            <div className='mx-auto w-full max-w-370 px-3 pb-10 pt-5 md:px-2 md:pt-5 lg:px-0'>
                 <div className={`grid ${gridLayoutClass}`}>
                     {showLeftSidebar ? <LeftSidebar role={role} /> : null}
                     <main className='min-w-0'>{children}</main>

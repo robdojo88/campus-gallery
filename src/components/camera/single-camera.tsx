@@ -27,6 +27,7 @@ export function SingleCameraCapture() {
     const [isCapturing, setIsCapturing] = useState(false);
     const [captureNotice, setCaptureNotice] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const memberMustChooseTag = role === 'member';
 
     useEffect(() => {
         const setNetwork = () => setOnline(navigator.onLine);
@@ -77,6 +78,15 @@ export function SingleCameraCapture() {
             mounted = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (eventsLoading) return;
+        if (role !== 'member') return;
+        if (eventId) return;
+        const firstEventId = eventOptions[0]?.id ?? '';
+        if (!firstEventId) return;
+        setEventId(firstEventId);
+    }, [eventId, eventOptions, eventsLoading, role]);
 
     useEffect(() => {
         let stream: MediaStream | null = null;
@@ -158,6 +168,28 @@ export function SingleCameraCapture() {
             setStatus('Capture at least one image first.');
             return;
         }
+        const cleanedCaption = caption.trim();
+        if (!cleanedCaption) {
+            setStatus('Caption is required.');
+            return;
+        }
+
+        if (memberMustChooseTag) {
+            if (eventsLoading) {
+                setStatus('Tags are still loading. Please wait a moment.');
+                return;
+            }
+            if (eventOptions.length === 0) {
+                setStatus(
+                    'No admin tags are available yet. Ask an admin to create tags first.',
+                );
+                return;
+            }
+            if (!eventId) {
+                setStatus('Select one admin tag before posting.');
+                return;
+            }
+        }
 
         if (!online) {
             await Promise.all(
@@ -165,7 +197,7 @@ export function SingleCameraCapture() {
                     addPendingCapture({
                         id: crypto.randomUUID(),
                         imageDataUrl: capture,
-                        caption,
+                        caption: cleanedCaption,
                         visibility,
                         eventId: eventId || undefined,
                         createdAt: new Date().toISOString(),
@@ -186,14 +218,14 @@ export function SingleCameraCapture() {
         try {
             if (captures.length === 1) {
                 await uploadCapturedImage(captures[0], {
-                    caption,
+                    caption: cleanedCaption,
                     visibility,
                     eventId: eventId || undefined,
                 });
             } else {
                 await uploadBatchCaptures({
                     captures,
-                    caption,
+                    caption: cleanedCaption,
                     visibility,
                     eventId: eventId || undefined,
                 });
@@ -297,7 +329,7 @@ export function SingleCameraCapture() {
                     value={caption}
                     onChange={(event) => setCaption(event.target.value)}
                     disabled={isSubmitting}
-                    placeholder='Optional caption'
+                    placeholder='Caption (required)'
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
                 <div className='grid gap-3 sm:grid-cols-2'>
@@ -319,9 +351,18 @@ export function SingleCameraCapture() {
                         disabled={isSubmitting || eventsLoading}
                         className='rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                     >
-                        <option value=''>
-                            {eventsLoading ? 'Loading events...' : 'No specific event'}
-                        </option>
+                        {eventsLoading ? (
+                            <option value=''>Loading tags...</option>
+                        ) : null}
+                        {!eventsLoading && !memberMustChooseTag ? (
+                            <option value=''>No specific tag</option>
+                        ) : null}
+                        {!eventsLoading &&
+                        memberMustChooseTag &&
+                        eventOptions.length > 0 &&
+                        !eventId ? (
+                            <option value=''>Select tag</option>
+                        ) : null}
                         {eventOptions.map((eventOption) => (
                             <option key={eventOption.id} value={eventOption.id}>
                                 {eventOption.name}
@@ -329,11 +370,15 @@ export function SingleCameraCapture() {
                         ))}
                     </select>
                 </div>
-                <p className='text-xs text-slate-500'>Assign an event so this post appears in Event folders and Date folder tags.</p>
+                <p className='text-xs text-slate-500'>
+                    {memberMustChooseTag
+                        ? 'For members, one admin tag is required before posting.'
+                        : 'Assign an event tag so this post appears in Event folders and Date folder tags.'}
+                </p>
                 <button
                     type='button'
                     onClick={() => void submitCapture()}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || caption.trim().length === 0}
                     className='w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                 >
                     {isSubmitting ? 'Posting...' : 'Submit Post'}

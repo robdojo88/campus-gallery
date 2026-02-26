@@ -24,7 +24,8 @@ type NavIconName =
     | 'freedom'
     | 'incognito'
     | 'visitor'
-    | 'reviews';
+    | 'reviews'
+    | 'admin_panel';
 
 type NavLink = {
     href: string;
@@ -59,6 +60,12 @@ const links = [
     { href: '/visitor-gallery', label: 'Visitor', icon: 'visitor' },
     { href: '/reviews', label: 'Visitor Feedback', icon: 'reviews' },
 ] satisfies NavLink[];
+
+const ADMIN_PANEL_LINK = {
+    href: '/admin',
+    label: 'Admin Panel',
+    icon: 'admin_panel',
+} satisfies NavLink;
 
 function NotificationBell({
     active,
@@ -236,6 +243,24 @@ function Icon({ name, active }: { name: NavIconName; active: boolean }) {
         );
     }
 
+    if (name === 'admin_panel') {
+        return (
+            <svg
+                viewBox='0 0 24 24'
+                aria-hidden='true'
+                className={`h-5 w-5 ${colorClass}`}
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
+                <rect x='3' y='3' width='18' height='18' rx='2' />
+                <path d='M3 9h18M9 21V9' />
+            </svg>
+        );
+    }
+
     return (
         <svg
             viewBox='0 0 24 24'
@@ -393,6 +418,7 @@ export function MainNav({
     const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
         resolveInitialThemeMode(),
     );
+    const [hasHydrated, setHasHydrated] = useState(false);
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
     const [profileMenuPosition, setProfileMenuPosition] = useState({
         top: 56,
@@ -406,6 +432,9 @@ export function MainNav({
         useState<GlobalSearchResults>(EMPTY_SEARCH_RESULTS);
     const [searchStatus, setSearchStatus] = useState('');
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const mobileMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
+    const mobileMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
+    const mobileMenuPanelRef = useRef<HTMLDivElement | null>(null);
     const profileMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
     const profileMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
     const profileMenuPanelRef = useRef<HTMLDivElement | null>(null);
@@ -636,14 +665,24 @@ export function MainNav({
         if (navigationDisabled) return;
         if (!mobileMenuOpen) return;
 
+        function onPointerDown(event: PointerEvent) {
+            const target = event.target as Node;
+            if (mobileMenuDesktopButtonRef.current?.contains(target)) return;
+            if (mobileMenuMobileButtonRef.current?.contains(target)) return;
+            if (mobileMenuPanelRef.current?.contains(target)) return;
+            setMobileMenuOpen(false);
+        }
+
         function onKeyDown(event: KeyboardEvent) {
             if (event.key === 'Escape') {
                 setMobileMenuOpen(false);
             }
         }
 
+        document.addEventListener('pointerdown', onPointerDown);
         document.addEventListener('keydown', onKeyDown);
         return () => {
+            document.removeEventListener('pointerdown', onPointerDown);
             document.removeEventListener('keydown', onKeyDown);
         };
     }, [mobileMenuOpen, navigationDisabled]);
@@ -712,6 +751,9 @@ export function MainNav({
                 ),
             );
         }
+        if (role === 'admin') {
+            return links;
+        }
         return links;
     }, [navigationDisabled, role]);
 
@@ -730,8 +772,19 @@ export function MainNav({
             ),
         [mobileOverflowLinks, pathname],
     );
+    const adminQuickLinks = useMemo(
+        () =>
+            role === 'admin' && !navigationDisabled ? [ADMIN_PANEL_LINK] : [],
+        [navigationDisabled, role],
+    );
     const notificationsEnabled =
         !navigationDisabled && (role === 'admin' || role === 'member');
+    const isDarkTheme = hasHydrated && themeMode === 'dark';
+    const spiralLogoSrc = isDarkTheme ? '/spiral_light.png' : '/spiral.png';
+
+    useEffect(() => {
+        setHasHydrated(true);
+    }, []);
 
     async function onLogout() {
         await signOutUser();
@@ -768,7 +821,7 @@ export function MainNav({
                         <span className='inline-flex items-center gap-2 rounded-xl px-1 py-1 text-lg font-bold tracking-tight text-slate-900'>
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
-                                    src='/spiral.png'
+                                    src={spiralLogoSrc}
                                     alt='KATOL'
                                     fill
                                     className='object-cover'
@@ -784,7 +837,7 @@ export function MainNav({
                         >
                             <span className='relative grid h-9 w-9 place-items-center overflow-hidden '>
                                 <Image
-                                    src='/spiral.png'
+                                    src={spiralLogoSrc}
                                     alt='KATOL'
                                     fill
                                     className='object-cover'
@@ -799,223 +852,237 @@ export function MainNav({
                             ref={searchWrapperRef}
                             className='relative hidden min-w-0 flex-1 md:block'
                         >
-                        <form
-                            onSubmit={onSubmitSearch}
-                            className='flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 transition focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100'
-                        >
-                            <svg
-                                viewBox='0 0 24 24'
-                                aria-hidden='true'
-                                className='h-4 w-4'
-                                fill='none'
-                                stroke='currentColor'
-                                strokeWidth='2'
-                                strokeLinecap='round'
-                                strokeLinejoin='round'
+                            <form
+                                onSubmit={onSubmitSearch}
+                                className='flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 transition focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100'
                             >
-                                <circle cx='11' cy='11' r='7' />
-                                <path d='m20 20-3.5-3.5' />
-                            </svg>
-                            <input
-                                type='search'
-                                value={searchQuery}
-                                onChange={(event) => {
-                                    const nextValue = event.target.value;
-                                    setSearchQuery(nextValue);
-                                    if (nextValue.trim().length < 2) {
-                                        setSearchResults(EMPTY_SEARCH_RESULTS);
-                                        setSearchStatus('');
-                                        setSearchLoading(false);
-                                    }
-                                }}
-                                onFocus={() => {
-                                    setSearchOpen(true);
-                                    if (searchQuery.trim().length < 2) {
-                                        setSearchResults(EMPTY_SEARCH_RESULTS);
-                                        setSearchStatus('');
-                                    }
-                                }}
-                                placeholder='Search users, events, dates, posts...'
-                                className='w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-500'
-                                aria-label='Search KATOL'
-                            />
-                        </form>
-                        {searchOpen ? (
-                            <div className='absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 max-h-[70vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl'>
-                                {searchLoading ? (
-                                    <p className='rounded-xl px-3 py-2 text-sm text-slate-500'>
-                                        Searching...
-                                    </p>
-                                ) : null}
-                                {!searchLoading &&
-                                searchQuery.trim().length < 2 ? (
-                                    <p className='rounded-xl px-3 py-2 text-sm text-slate-500'>
-                                        Type at least 2 characters.
-                                    </p>
-                                ) : null}
-                                {!searchLoading &&
-                                searchQuery.trim().length >= 2 &&
-                                searchStatus ? (
-                                    <p className='rounded-xl px-3 py-2 text-sm text-slate-500'>
-                                        {searchStatus}
-                                    </p>
-                                ) : null}
+                                <svg
+                                    viewBox='0 0 24 24'
+                                    aria-hidden='true'
+                                    className='h-4 w-4'
+                                    fill='none'
+                                    stroke='currentColor'
+                                    strokeWidth='2'
+                                    strokeLinecap='round'
+                                    strokeLinejoin='round'
+                                >
+                                    <circle cx='11' cy='11' r='7' />
+                                    <path d='m20 20-3.5-3.5' />
+                                </svg>
+                                <input
+                                    type='search'
+                                    value={searchQuery}
+                                    onChange={(event) => {
+                                        const nextValue = event.target.value;
+                                        setSearchQuery(nextValue);
+                                        if (nextValue.trim().length < 2) {
+                                            setSearchResults(
+                                                EMPTY_SEARCH_RESULTS,
+                                            );
+                                            setSearchStatus('');
+                                            setSearchLoading(false);
+                                        }
+                                    }}
+                                    onFocus={() => {
+                                        setSearchOpen(true);
+                                        if (searchQuery.trim().length < 2) {
+                                            setSearchResults(
+                                                EMPTY_SEARCH_RESULTS,
+                                            );
+                                            setSearchStatus('');
+                                        }
+                                    }}
+                                    placeholder='Search users, events, dates, posts...'
+                                    className='w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-500'
+                                    aria-label='Search KATOL'
+                                />
+                            </form>
+                            {searchOpen ? (
+                                <div className='absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 max-h-[70vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl'>
+                                    {searchLoading ? (
+                                        <p className='rounded-xl px-3 py-2 text-sm text-slate-500'>
+                                            Searching...
+                                        </p>
+                                    ) : null}
+                                    {!searchLoading &&
+                                    searchQuery.trim().length < 2 ? (
+                                        <p className='rounded-xl px-3 py-2 text-sm text-slate-500'>
+                                            Type at least 2 characters.
+                                        </p>
+                                    ) : null}
+                                    {!searchLoading &&
+                                    searchQuery.trim().length >= 2 &&
+                                    searchStatus ? (
+                                        <p className='rounded-xl px-3 py-2 text-sm text-slate-500'>
+                                            {searchStatus}
+                                        </p>
+                                    ) : null}
 
-                                {!searchLoading &&
-                                searchQuery.trim().length >= 2 &&
-                                searchResultCount > 0 ? (
-                                    <div className='space-y-2'>
-                                        {searchResults.users.length > 0 ? (
-                                            <div className='space-y-1'>
-                                                <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
-                                                    Users
-                                                </p>
-                                                {searchResults.users.map(
-                                                    (user) => (
-                                                        <Link
-                                                            key={user.id}
-                                                            href={`/profile/${user.id}`}
-                                                            onClick={() =>
-                                                                setSearchOpen(
-                                                                    false,
-                                                                )
-                                                            }
-                                                            className='flex items-center gap-2 rounded-xl px-2 py-2 transition hover:bg-slate-50'
-                                                        >
-                                                            <span className='relative h-8 w-8 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
-                                                                <Image
-                                                                    src={
-                                                                        user.avatarUrl
-                                                                    }
-                                                                    alt={
-                                                                        user.name
-                                                                    }
-                                                                    fill
-                                                                    className='object-cover'
-                                                                    sizes='32px'
-                                                                />
-                                                            </span>
-                                                            <span className='min-w-0'>
+                                    {!searchLoading &&
+                                    searchQuery.trim().length >= 2 &&
+                                    searchResultCount > 0 ? (
+                                        <div className='space-y-2'>
+                                            {searchResults.users.length > 0 ? (
+                                                <div className='space-y-1'>
+                                                    <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
+                                                        Users
+                                                    </p>
+                                                    {searchResults.users.map(
+                                                        (user) => (
+                                                            <Link
+                                                                key={user.id}
+                                                                href={`/profile/${user.id}`}
+                                                                onClick={() =>
+                                                                    setSearchOpen(
+                                                                        false,
+                                                                    )
+                                                                }
+                                                                className='flex items-center gap-2 rounded-xl px-2 py-2 transition hover:bg-slate-50'
+                                                            >
+                                                                <span className='relative h-8 w-8 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                                                                    <Image
+                                                                        src={
+                                                                            user.avatarUrl
+                                                                        }
+                                                                        alt={
+                                                                            user.name
+                                                                        }
+                                                                        fill
+                                                                        className='object-cover'
+                                                                        sizes='32px'
+                                                                    />
+                                                                </span>
+                                                                <span className='min-w-0'>
+                                                                    <span className='block truncate text-sm font-medium text-slate-800'>
+                                                                        {
+                                                                            user.name
+                                                                        }
+                                                                    </span>
+                                                                    <span className='block truncate text-xs text-slate-500'>
+                                                                        {
+                                                                            user.email
+                                                                        }
+                                                                    </span>
+                                                                </span>
+                                                            </Link>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            ) : null}
+
+                                            {searchResults.events.length > 0 ? (
+                                                <div className='space-y-1'>
+                                                    <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
+                                                        Events
+                                                    </p>
+                                                    {searchResults.events.map(
+                                                        (eventResult) => (
+                                                            <Link
+                                                                key={
+                                                                    eventResult.id
+                                                                }
+                                                                href={`/gallery/events?event=${eventResult.id}`}
+                                                                onClick={() =>
+                                                                    setSearchOpen(
+                                                                        false,
+                                                                    )
+                                                                }
+                                                                className='block rounded-xl px-2 py-2 transition hover:bg-slate-50'
+                                                            >
                                                                 <span className='block truncate text-sm font-medium text-slate-800'>
-                                                                    {user.name}
+                                                                    {
+                                                                        eventResult.name
+                                                                    }
+                                                                </span>
+                                                            </Link>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            ) : null}
+
+                                            {searchResults.dates.length > 0 ? (
+                                                <div className='space-y-1'>
+                                                    <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
+                                                        Date Folders
+                                                    </p>
+                                                    {searchResults.dates.map(
+                                                        (dateResult) => (
+                                                            <Link
+                                                                key={
+                                                                    dateResult.date
+                                                                }
+                                                                href={`/gallery/date/${dateResult.date}`}
+                                                                onClick={() =>
+                                                                    setSearchOpen(
+                                                                        false,
+                                                                    )
+                                                                }
+                                                                className='flex items-center justify-between rounded-xl px-2 py-2 transition hover:bg-slate-50'
+                                                            >
+                                                                <span className='truncate text-sm font-medium text-slate-800'>
+                                                                    {
+                                                                        dateResult.label
+                                                                    }
+                                                                </span>
+                                                                <span className='text-xs text-slate-500'>
+                                                                    {
+                                                                        dateResult.count
+                                                                    }
+                                                                </span>
+                                                            </Link>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            ) : null}
+
+                                            {searchResults.posts.length > 0 ? (
+                                                <div className='space-y-1'>
+                                                    <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
+                                                        Posts
+                                                    </p>
+                                                    {searchResults.posts.map(
+                                                        (postResult) => (
+                                                            <Link
+                                                                key={
+                                                                    postResult.id
+                                                                }
+                                                                href='/feed'
+                                                                onClick={() =>
+                                                                    setSearchOpen(
+                                                                        false,
+                                                                    )
+                                                                }
+                                                                className='block rounded-xl px-2 py-2 transition hover:bg-slate-50'
+                                                            >
+                                                                <span className='block truncate text-sm font-medium text-slate-800'>
+                                                                    {
+                                                                        postResult.caption
+                                                                    }
                                                                 </span>
                                                                 <span className='block truncate text-xs text-slate-500'>
-                                                                    {user.email}
+                                                                    {
+                                                                        postResult.authorName
+                                                                    }
                                                                 </span>
-                                                            </span>
-                                                        </Link>
-                                                    ),
-                                                )}
-                                            </div>
-                                        ) : null}
+                                                            </Link>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            ) : null}
 
-                                        {searchResults.events.length > 0 ? (
-                                            <div className='space-y-1'>
-                                                <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
-                                                    Events
-                                                </p>
-                                                {searchResults.events.map(
-                                                    (eventResult) => (
-                                                        <Link
-                                                            key={eventResult.id}
-                                                            href={`/gallery/events?event=${eventResult.id}`}
-                                                            onClick={() =>
-                                                                setSearchOpen(
-                                                                    false,
-                                                                )
-                                                            }
-                                                            className='block rounded-xl px-2 py-2 transition hover:bg-slate-50'
-                                                        >
-                                                            <span className='block truncate text-sm font-medium text-slate-800'>
-                                                                {
-                                                                    eventResult.name
-                                                                }
-                                                            </span>
-                                                        </Link>
-                                                    ),
-                                                )}
-                                            </div>
-                                        ) : null}
-
-                                        {searchResults.dates.length > 0 ? (
-                                            <div className='space-y-1'>
-                                                <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
-                                                    Date Folders
-                                                </p>
-                                                {searchResults.dates.map(
-                                                    (dateResult) => (
-                                                        <Link
-                                                            key={
-                                                                dateResult.date
-                                                            }
-                                                            href={`/gallery/date/${dateResult.date}`}
-                                                            onClick={() =>
-                                                                setSearchOpen(
-                                                                    false,
-                                                                )
-                                                            }
-                                                            className='flex items-center justify-between rounded-xl px-2 py-2 transition hover:bg-slate-50'
-                                                        >
-                                                            <span className='truncate text-sm font-medium text-slate-800'>
-                                                                {
-                                                                    dateResult.label
-                                                                }
-                                                            </span>
-                                                            <span className='text-xs text-slate-500'>
-                                                                {
-                                                                    dateResult.count
-                                                                }
-                                                            </span>
-                                                        </Link>
-                                                    ),
-                                                )}
-                                            </div>
-                                        ) : null}
-
-                                        {searchResults.posts.length > 0 ? (
-                                            <div className='space-y-1'>
-                                                <p className='px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'>
-                                                    Posts
-                                                </p>
-                                                {searchResults.posts.map(
-                                                    (postResult) => (
-                                                        <Link
-                                                            key={postResult.id}
-                                                            href='/feed'
-                                                            onClick={() =>
-                                                                setSearchOpen(
-                                                                    false,
-                                                                )
-                                                            }
-                                                            className='block rounded-xl px-2 py-2 transition hover:bg-slate-50'
-                                                        >
-                                                            <span className='block truncate text-sm font-medium text-slate-800'>
-                                                                {
-                                                                    postResult.caption
-                                                                }
-                                                            </span>
-                                                            <span className='block truncate text-xs text-slate-500'>
-                                                                {
-                                                                    postResult.authorName
-                                                                }
-                                                            </span>
-                                                        </Link>
-                                                    ),
-                                                )}
-                                            </div>
-                                        ) : null}
-
-                                        <Link
-                                            href={`/search?q=${encodeURIComponent(searchQuery.trim())}`}
-                                            onClick={() => setSearchOpen(false)}
-                                            className='block rounded-xl bg-slate-900 px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-slate-700'
-                                        >
-                                            See all results
-                                        </Link>
-                                    </div>
-                                ) : null}
-                            </div>
-                        ) : null}
+                                            <Link
+                                                href={`/search?q=${encodeURIComponent(searchQuery.trim())}`}
+                                                onClick={() =>
+                                                    setSearchOpen(false)
+                                                }
+                                                className='block rounded-xl bg-slate-900 px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-slate-700'
+                                            >
+                                                See all results
+                                            </Link>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ) : null}
                         </div>
                     )}
                 </div>
@@ -1041,26 +1108,26 @@ export function MainNav({
                     ) : userId ? (
                         <>
                             {notificationsEnabled ? (
-                            <Link
-                                href='/notifications'
-                                aria-label='Notifications'
-                                title='Notifications'
-                                className={`group relative flex h-10 w-10 items-center justify-center rounded-xl border border-transparent transition ${
-                                    pathname.startsWith('/notifications')
-                                        ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
-                                        : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
-                                }`}
-                            >
-                                <NotificationBell
-                                    active={pathname.startsWith(
-                                        '/notifications',
-                                    )}
-                                    unreadCount={unreadCount}
-                                />
-                                <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
-                                    Notifications
-                                </span>
-                            </Link>
+                                <Link
+                                    href='/notifications'
+                                    aria-label='Notifications'
+                                    title='Notifications'
+                                    className={`group relative flex h-10 w-10 items-center justify-center rounded-xl border border-transparent transition ${
+                                        pathname.startsWith('/notifications')
+                                            ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
+                                            : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                                    }`}
+                                >
+                                    <NotificationBell
+                                        active={pathname.startsWith(
+                                            '/notifications',
+                                        )}
+                                        unreadCount={unreadCount}
+                                    />
+                                    <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
+                                        Notifications
+                                    </span>
+                                </Link>
                             ) : null}
                             <div className='relative'>
                                 <button
@@ -1115,6 +1182,7 @@ export function MainNav({
                 <div className='flex items-center gap-2 justify-self-start rounded-2xl border border-slate-200/90 bg-white/80 px-2 py-1 shadow-sm backdrop-blur'>
                     {mobileOverflowLinks.length > 0 ? (
                         <button
+                            ref={mobileMenuDesktopButtonRef}
                             type='button'
                             onClick={() =>
                                 setMobileMenuOpen((current) => !current)
@@ -1150,9 +1218,9 @@ export function MainNav({
                     ) : null}
                     {navigationDisabled ? (
                         <span className='group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-600'>
-                            <span className='relative h-8 w-8 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                            <span className='relative h-8 w-8 overflow-hidden rounded-full'>
                                 <Image
-                                    src='/spiral.png'
+                                    src={spiralLogoSrc}
                                     alt='KATOL'
                                     fill
                                     className='object-cover'
@@ -1167,9 +1235,9 @@ export function MainNav({
                             title='KATOL'
                             className='group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                         >
-                            <span className='relative h-8 w-8 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                            <span className='relative h-8 w-8 overflow-hidden rounded-full'>
                                 <Image
-                                    src='/spiral.png'
+                                    src={spiralLogoSrc}
                                     alt='KATOL'
                                     fill
                                     className='object-cover'
@@ -1189,6 +1257,22 @@ export function MainNav({
                         return (
                             <NavIconLink
                                 key={`desktop-${link.href}`}
+                                link={link}
+                                active={active}
+                            />
+                        );
+                    })}
+                    {adminQuickLinks.length > 0 ? (
+                        <span
+                            aria-hidden='true'
+                            className='mx-1 h-6 w-px bg-slate-300'
+                        />
+                    ) : null}
+                    {adminQuickLinks.map((link) => {
+                        const active = isLinkActive(pathname, link.href);
+                        return (
+                            <NavIconLink
+                                key={`desktop-admin-${link.href}`}
                                 link={link}
                                 active={active}
                             />
@@ -1259,6 +1343,7 @@ export function MainNav({
             <nav className='mx-auto flex w-full max-w-[1480px] items-center justify-between gap-1 overflow-hidden px-2 py-2 md:hidden'>
                 {mobileOverflowLinks.length > 0 ? (
                     <button
+                        ref={mobileMenuMobileButtonRef}
                         type='button'
                         onClick={() => setMobileMenuOpen((current) => !current)}
                         aria-label='Open navigation'
@@ -1292,9 +1377,9 @@ export function MainNav({
                 ) : null}
                 {navigationDisabled ? (
                     <span className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-slate-600'>
-                        <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                        <span className='relative h-7 w-7 overflow-hidden rounded-full'>
                             <Image
-                                src='/spiral.png'
+                                src={spiralLogoSrc}
                                 alt='KATOL'
                                 fill
                                 className='object-cover'
@@ -1309,9 +1394,9 @@ export function MainNav({
                         title='KATOL'
                         className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
                     >
-                        <span className='relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-slate-200'>
+                        <span className='relative h-7 w-7 overflow-hidden rounded-full'>
                             <Image
-                                src='/spiral.png'
+                                src={spiralLogoSrc}
                                 alt='KATOL'
                                 fill
                                 className='object-cover'
@@ -1334,6 +1419,17 @@ export function MainNav({
                         />
                     );
                 })}
+                {adminQuickLinks.map((link) => {
+                    const active = isLinkActive(pathname, link.href);
+                    return (
+                        <NavIconLink
+                            key={`mobile-admin-${link.href}`}
+                            link={link}
+                            active={active}
+                            compact
+                        />
+                    );
+                })}
                 {!authResolved ? (
                     <span
                         className='h-9 w-9 shrink-0 rounded-full bg-slate-100 ring-2 ring-slate-200'
@@ -1342,21 +1438,23 @@ export function MainNav({
                 ) : userId ? (
                     <>
                         {notificationsEnabled ? (
-                        <Link
-                            href='/notifications'
-                            aria-label='Notifications'
-                            title='Notifications'
-                            className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
-                                pathname.startsWith('/notifications')
-                                    ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
-                                    : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
-                            }`}
-                        >
-                            <NotificationBell
-                                active={pathname.startsWith('/notifications')}
-                                unreadCount={unreadCount}
-                            />
-                        </Link>
+                            <Link
+                                href='/notifications'
+                                aria-label='Notifications'
+                                title='Notifications'
+                                className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
+                                    pathname.startsWith('/notifications')
+                                        ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
+                                        : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                                }`}
+                            >
+                                <NotificationBell
+                                    active={pathname.startsWith(
+                                        '/notifications',
+                                    )}
+                                    unreadCount={unreadCount}
+                                />
+                            </Link>
                         ) : null}
                         <button
                             ref={profileMenuMobileButtonRef}
@@ -1408,6 +1506,7 @@ export function MainNav({
                             transition={{ duration: 0.2, ease: 'easeOut' }}
                         />
                         <motion.aside
+                            ref={mobileMenuPanelRef}
                             initial={{ x: '-100%' }}
                             animate={{ x: 0 }}
                             exit={{ x: '-100%' }}
@@ -1474,15 +1573,6 @@ export function MainNav({
                               right: `${profileMenuPosition.right}px`,
                           }}
                       >
-                          {role === 'admin' && !navigationDisabled ? (
-                              <Link
-                                  href='/admin'
-                                  onClick={() => setProfileMenuOpen(false)}
-                                  className='block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100'
-                              >
-                                  Admin Panel
-                              </Link>
-                          ) : null}
                           <Link
                               href={`/profile/${userId}`}
                               onClick={() => setProfileMenuOpen(false)}
@@ -1498,9 +1588,7 @@ export function MainNav({
                               }}
                               className='block w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100'
                           >
-                              {themeMode === 'dark'
-                                  ? 'Light mode'
-                                  : 'Dark mode'}
+                              {isDarkTheme ? 'Light mode' : 'Dark mode'}
                           </button>
                           <button
                               type='button'
@@ -1516,6 +1604,9 @@ export function MainNav({
         </header>
     );
 }
+
+
+
 
 
 

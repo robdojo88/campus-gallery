@@ -1,9 +1,9 @@
 'use client';
 
 import Image from 'next/image';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, CardBody, Chip, Textarea } from '@heroui/react';
+import { Button, Card, CardBody, Textarea } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
 import { PageHeader } from '@/components/ui/page-header';
@@ -35,6 +35,7 @@ const FREEDOM_COMMENT_INDENT_CAP = 1;
 const COMMENT_AVATAR_FALLBACK = '/avatar-default.svg';
 const COMMENTS_INITIAL_VISIBLE = 10;
 const COMMENTS_PAGE_SIZE = 5;
+const FREEDOM_POST_IMAGE_LIMIT = 4;
 
 function safeTimeValue(timestamp: string): number {
     const value = new Date(timestamp).getTime();
@@ -120,12 +121,137 @@ function CommentIcon({ className = 'h-4 w-4' }: { className?: string }) {
     );
 }
 
+function resolveFreedomPostImages(post: FreedomPost): string[] {
+    if (post.images && post.images.length > 0) {
+        return post.images.slice(0, FREEDOM_POST_IMAGE_LIMIT);
+    }
+    if (post.imageUrl) {
+        return [post.imageUrl];
+    }
+    return [];
+}
+
+function FreedomPostImageGrid({
+    images,
+    onOpen,
+}: {
+    images: string[];
+    onOpen: (index: number) => void;
+}) {
+    if (images.length === 1) {
+        return (
+            <div className='relative mt-3 overflow-hidden rounded-2xl border border-slate-200'>
+                <button
+                    type='button'
+                    onClick={() => onOpen(0)}
+                    className='block w-full'
+                >
+                    <Image
+                        src={images[0]}
+                        alt='Freedom wall attachment'
+                        width={1200}
+                        height={900}
+                        className='h-auto w-full object-cover'
+                    />
+                </button>
+            </div>
+        );
+    }
+
+    if (images.length === 2) {
+        return (
+            <div className='mt-3 grid h-[310px] grid-cols-2 gap-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100'>
+                {images.map((imageUrl, index) => (
+                    <button
+                        key={`${imageUrl}-${index}`}
+                        type='button'
+                        onClick={() => onOpen(index)}
+                        className='relative'
+                    >
+                        <Image
+                            src={imageUrl}
+                            alt={`Freedom wall attachment ${index + 1}`}
+                            fill
+                            className='object-cover'
+                        />
+                    </button>
+                ))}
+            </div>
+        );
+    }
+
+    if (images.length === 3) {
+        return (
+            <div className='mt-3 grid h-[350px] grid-cols-[2fr_1fr] grid-rows-2 gap-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100'>
+                <button
+                    type='button'
+                    onClick={() => onOpen(0)}
+                    className='relative row-span-2'
+                >
+                    <Image
+                        src={images[0]}
+                        alt='Freedom wall attachment 1'
+                        fill
+                        className='object-cover'
+                    />
+                </button>
+                <button
+                    type='button'
+                    onClick={() => onOpen(1)}
+                    className='relative'
+                >
+                    <Image
+                        src={images[1]}
+                        alt='Freedom wall attachment 2'
+                        fill
+                        className='object-cover'
+                    />
+                </button>
+                <button
+                    type='button'
+                    onClick={() => onOpen(2)}
+                    className='relative'
+                >
+                    <Image
+                        src={images[2]}
+                        alt='Freedom wall attachment 3'
+                        fill
+                        className='object-cover'
+                    />
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className='mt-3 grid h-[350px] grid-cols-2 grid-rows-2 gap-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100'>
+            {images
+                .slice(0, FREEDOM_POST_IMAGE_LIMIT)
+                .map((imageUrl, index) => (
+                    <button
+                        key={`${imageUrl}-${index}`}
+                        type='button'
+                        onClick={() => onOpen(index)}
+                        className='relative'
+                    >
+                        <Image
+                            src={imageUrl}
+                            alt={`Freedom wall attachment ${index + 1}`}
+                            fill
+                            className='object-cover'
+                        />
+                    </button>
+                ))}
+        </div>
+    );
+}
+
 export default function FreedomWallPage() {
     const [targetPostId, setTargetPostId] = useState('');
     const [targetCommentId, setTargetCommentId] = useState('');
     const [content, setContent] = useState('');
-    const [imageFile, setImageFile] = useState<File | null>(null);
-    const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+    const [imageFiles, setImageFiles] = useState<File[]>([]);
+    const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
     const [items, setItems] = useState<FreedomPost[]>([]);
     const [commentsByPost, setCommentsByPost] = useState<
         Record<string, FreedomWallComment[]>
@@ -163,6 +289,11 @@ export default function FreedomWallPage() {
         useState<DeleteTarget | null>(null);
     const [currentUserId, setCurrentUserId] = useState('');
     const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+    const [lightboxState, setLightboxState] = useState<{
+        postId: string;
+        index: number;
+    } | null>(null);
+    const [lightboxLoadedSrc, setLightboxLoadedSrc] = useState('');
     const openCommentsRef = useRef<Record<string, boolean>>({});
     const commentsAnchorByPostRef = useRef<
         Record<string, HTMLDivElement | null>
@@ -170,6 +301,22 @@ export default function FreedomWallPage() {
     const imageInputRef = useRef<HTMLInputElement | null>(null);
     const focusedPostIdRef = useRef('');
     const focusedCommentIdRef = useRef('');
+    const activeLightboxPost = lightboxState
+        ? items.find((item) => item.id === lightboxState.postId)
+        : undefined;
+    const activeLightboxImages = activeLightboxPost
+        ? resolveFreedomPostImages(activeLightboxPost)
+        : [];
+    const activeLightboxIndex = lightboxState
+        ? Math.min(
+              Math.max(lightboxState.index, 0),
+              Math.max(activeLightboxImages.length - 1, 0),
+          )
+        : 0;
+    const activeLightboxImage = activeLightboxImages[activeLightboxIndex];
+    const lightboxImageLoading =
+        Boolean(activeLightboxImage) &&
+        lightboxLoadedSrc !== activeLightboxImage;
 
     useEffect(() => {
         openCommentsRef.current = openCommentsByPost;
@@ -190,16 +337,89 @@ export default function FreedomWallPage() {
     }, []);
 
     useEffect(() => {
-        if (!imageFile) {
-            setImagePreviewUrl('');
+        if (imageFiles.length === 0) {
+            setImagePreviewUrls([]);
             return;
         }
-        const nextUrl = URL.createObjectURL(imageFile);
-        setImagePreviewUrl(nextUrl);
+        const nextUrls = imageFiles.map((file) => URL.createObjectURL(file));
+        setImagePreviewUrls(nextUrls);
         return () => {
-            URL.revokeObjectURL(nextUrl);
+            nextUrls.forEach((url) => URL.revokeObjectURL(url));
         };
-    }, [imageFile]);
+    }, [imageFiles]);
+
+    useEffect(() => {
+        if (!lightboxState || activeLightboxImages.length === 0) return;
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setLightboxState(null);
+                return;
+            }
+            if (activeLightboxImages.length <= 1) return;
+            if (event.key === 'ArrowRight') {
+                setLightboxState((current) => {
+                    if (!current) return current;
+                    return {
+                        ...current,
+                        index: (current.index + 1) % activeLightboxImages.length,
+                    };
+                });
+            }
+            if (event.key === 'ArrowLeft') {
+                setLightboxState((current) => {
+                    if (!current) return current;
+                    return {
+                        ...current,
+                        index:
+                            (current.index - 1 + activeLightboxImages.length) %
+                            activeLightboxImages.length,
+                    };
+                });
+            }
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [activeLightboxImages.length, lightboxState]);
+
+    useEffect(() => {
+        if (!lightboxState) {
+            setLightboxLoadedSrc('');
+        }
+    }, [lightboxState]);
+
+    function openPostImage(postId: string, index: number) {
+        setLightboxState({ postId, index });
+    }
+
+    function closePostImage() {
+        setLightboxState(null);
+    }
+
+    function showNextPostImage() {
+        if (activeLightboxImages.length <= 1) return;
+        setLightboxState((current) => {
+            if (!current) return current;
+            return {
+                ...current,
+                index: (current.index + 1) % activeLightboxImages.length,
+            };
+        });
+    }
+
+    function showPreviousPostImage() {
+        if (activeLightboxImages.length <= 1) return;
+        setLightboxState((current) => {
+            if (!current) return current;
+            return {
+                ...current,
+                index:
+                    (current.index - 1 + activeLightboxImages.length) %
+                    activeLightboxImages.length,
+            };
+        });
+    }
 
     async function loadPosts(options: { keepStatus?: boolean } = {}) {
         try {
@@ -438,8 +658,8 @@ export default function FreedomWallPage() {
     async function submitPost() {
         if (posting) return;
         const cleanedContent = content.trim();
-        if (!cleanedContent && !imageFile) {
-            setStatus('Write something or choose an image.');
+        if (!cleanedContent) {
+            setStatus('Caption is required.');
             return;
         }
 
@@ -448,10 +668,10 @@ export default function FreedomWallPage() {
         try {
             await createFreedomPost({
                 content: cleanedContent,
-                imageFile,
+                imageFiles,
             });
             setContent('');
-            setImageFile(null);
+            setImageFiles([]);
             if (imageInputRef.current) {
                 imageInputRef.current.value = '';
             }
@@ -980,476 +1200,648 @@ export default function FreedomWallPage() {
             ? 'This action permanently removes the post and all related comments.'
             : 'This action permanently removes this comment.';
     const canReport = isAdmin === false;
-    const canSubmitPost =
-        !posting && (content.trim().length > 0 || !!imageFile);
+    const canSubmitPost = !posting && content.trim().length > 0;
 
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
-                <PageHeader
-                    eyebrow='Community'
-                    title='Freedom Wall'
-                    description='Post text or image updates, like posts, and join nested comment threads.'
-                />
+                <div className='mx-auto w-full max-w-4xl'>
+                    <PageHeader
+                        eyebrow='Community'
+                        title='Freedom Wall'
+                        description='Post text or image updates, like posts, and join nested comment threads.'
+                    />
 
-                <motion.div
-                    layout
-                    transition={{ layout: { duration: 0.22, ease: 'easeOut' } }}
-                >
-                    <Card className='mb-5 border border-slate-200 bg-white shadow-sm'>
-                        <CardBody className='space-y-4 p-5'>
-                            <Textarea
-                                value={content}
-                                onChange={(event) =>
-                                    setContent(event.target.value)
-                                }
-                                placeholder='Share something with campus (text optional if image is attached)'
-                                isDisabled={posting}
-                                minRows={3}
-                                maxRows={12}
-                                className='w-full'
-                                classNames={{
-                                    base: 'w-full',
-                                    mainWrapper: 'w-full',
-                                    inputWrapper:
-                                        'h-auto min-h-[92px] items-start border border-slate-300 bg-white py-2 transition-colors data-[hover=true]:border-cyan-300 group-data-[focus=true]:border-cyan-400',
-                                    innerWrapper: 'h-auto items-start',
-                                    input: 'h-auto min-h-[72px] resize-none overflow-hidden text-sm leading-6 \
-       focus:outline-none focus:ring-0',
-                                }}
-                            />
-
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <label className='inline-flex cursor-pointer items-center rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50'>
-                                    <input
-                                        ref={imageInputRef}
-                                        type='file'
-                                        accept='image/*'
-                                        disabled={posting}
-                                        onChange={(event) =>
-                                            setImageFile(
-                                                event.target.files?.[0] ?? null,
-                                            )
-                                        }
-                                        className='hidden'
-                                    />
-                                    Choose Image
-                                </label>
-
-                                {imageFile ? (
-                                    <Button
-                                        onClick={() => {
-                                            setImageFile(null);
-                                            if (imageInputRef.current) {
-                                                imageInputRef.current.value =
-                                                    '';
-                                            }
-                                        }}
-                                        isDisabled={posting}
-                                        variant='bordered'
-                                        className='text-sm font-semibold text-slate-700'
-                                    >
-                                        Remove Image
-                                    </Button>
-                                ) : null}
-
-                                {imageFile ? (
-                                    <Chip
-                                        size='sm'
-                                        variant='flat'
-                                        className='max-w-full bg-slate-100 text-xs text-slate-500'
-                                    >
-                                        {imageFile.name}
-                                    </Chip>
-                                ) : null}
-                            </div>
-
-                            {imagePreviewUrl ? (
-                                <motion.div
-                                    layout
-                                    initial={{ opacity: 0, y: 4 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{
-                                        duration: 0.18,
-                                        ease: 'easeOut',
+                    <motion.div
+                        layout
+                        transition={{
+                            layout: { duration: 0.22, ease: 'easeOut' },
+                        }}
+                    >
+                        <Card className='mb-5 border border-slate-200 bg-white shadow-sm rounded-2xl'>
+                            <CardBody className='space-y-4 p-5'>
+                                <Textarea
+                                    value={content}
+                                    onChange={(event) =>
+                                        setContent(event.target.value)
+                                    }
+                                    placeholder='Write a caption...'
+                                    isDisabled={posting}
+                                    minRows={3}
+                                    maxRows={12}
+                                    className='w-full'
+                                    classNames={{
+                                        base: 'w-full',
+                                        mainWrapper: 'w-full',
+                                        inputWrapper:
+                                            'h-auto min-h-[92px] items-start border border-slate-300 bg-white py-2 transition-colors data-[hover=true]:border-cyan-300 group-data-[focus=true]:border-cyan-400 rounded-xl',
+                                        innerWrapper: 'h-auto items-start',
+                                        input: 'h-auto min-h-[72px] resize-none overflow-hidden text-sm leading-6 \
+       focus:outline-none focus:ring-0 ',
                                     }}
-                                    className='relative max-w-md overflow-hidden rounded-2xl border border-slate-200'
-                                >
-                                    <Image
-                                        src={imagePreviewUrl}
-                                        alt='Selected image preview'
-                                        width={600}
-                                        height={400}
-                                        unoptimized
-                                        className='h-auto w-full object-cover'
-                                    />
-                                </motion.div>
-                            ) : null}
+                                />
+                                <div className='flex justify-between'>
+                                    {' '}
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <label className='inline-flex cursor-pointer items-center rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50'>
+                                            <input
+                                                ref={imageInputRef}
+                                                type='file'
+                                                accept='image/*'
+                                                multiple
+                                                disabled={posting}
+                                                onChange={(event) => {
+                                                    const selectedFiles =
+                                                        Array.from(
+                                                            event.target
+                                                                .files ?? [],
+                                                        ).slice(
+                                                            0,
+                                                            FREEDOM_POST_IMAGE_LIMIT,
+                                                        );
+                                                    setImageFiles(
+                                                        selectedFiles,
+                                                    );
+                                                    if (
+                                                        (event.target.files
+                                                            ?.length ?? 0) >
+                                                        FREEDOM_POST_IMAGE_LIMIT
+                                                    ) {
+                                                        setStatus(
+                                                            `You can upload up to ${FREEDOM_POST_IMAGE_LIMIT} images.`,
+                                                        );
+                                                    }
+                                                }}
+                                                className='hidden'
+                                            />
+                                            Choose Image
+                                        </label>
+                                        <span className='text-xs'>
+                                            Up to 4 images
+                                        </span>
 
-                            <div className='flex justify-end'>
-                                <Button
-                                    onClick={() => void submitPost()}
-                                    isDisabled={!canSubmitPost}
-                                    color='primary'
-                                    className='min-w-28 text-sm font-semibold'
-                                >
-                                    {posting ? 'Posting...' : 'Post'}
-                                </Button>
-                            </div>
-                        </CardBody>
-                    </Card>
-                </motion.div>
-
-                {status ? (
-                    <Card className='mb-4 border border-slate-200 bg-white'>
-                        <CardBody className='p-4 text-sm text-slate-600'>
-                            {status}
-                        </CardBody>
-                    </Card>
-                ) : null}
-
-                {!loading ? (
-                    <section className='space-y-4'>
-                        {items.map((post) => {
-                            const comments = commentsByPost[post.id] ?? [];
-                            const sortOrder =
-                                commentSortByPost[post.id] ?? 'recent';
-                            const sortedComments = sortComments(
-                                comments,
-                                sortOrder,
-                            );
-                            const visibleCount =
-                                visibleCommentsByPost[post.id] ??
-                                Math.min(
-                                    COMMENTS_INITIAL_VISIBLE,
-                                    sortedComments.length,
-                                );
-                            const visibleComments = sortedComments.slice(
-                                0,
-                                visibleCount,
-                            );
-                            const hasHiddenComments =
-                                sortedComments.length > visibleCount;
-                            const commentTree = buildCommentTree(
-                                visibleComments,
-                                sortOrder,
-                            );
-                            const commentById = new Map(
-                                visibleComments.map((comment) => [
-                                    comment.id,
-                                    comment,
-                                ]),
-                            );
-                            const replyTarget = replyTargetByPost[post.id];
-                            const commentInput =
-                                commentInputByPost[post.id] ?? '';
-                            const commentsOpen = Boolean(
-                                openCommentsByPost[post.id],
-                            );
-                            const autoLoadComments = Boolean(
-                                autoLoadCommentsByPost[post.id],
-                            );
-                            const busy = busyPostId === post.id;
-
-                            return (
-                                <Card
-                                    key={post.id}
-                                    id={`freedom-post-${post.id}`}
-                                    data-freedom-post-id={post.id}
-                                    className='border border-slate-200 bg-white shadow-sm'
-                                >
-                                    <CardBody className='p-5'>
-                                        <div className='flex items-start justify-between gap-3'>
-                                            <div className='flex items-center gap-3'>
-                                                <span className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                                        {imageFiles.length > 0 ? (
+                                            <Button
+                                                onClick={() => {
+                                                    setImageFiles([]);
+                                                    if (imageInputRef.current) {
+                                                        imageInputRef.current.value =
+                                                            '';
+                                                    }
+                                                }}
+                                                isDisabled={posting}
+                                                variant='bordered'
+                                                className='text-sm font-semibold text-slate-700 bg-[#0F172B] text-slate-50 rounded-xl hover:bg-[#282828]'
+                                            >
+                                                Remove Image
+                                            </Button>
+                                        ) : null}
+                                        {/* 
+                                        {imageFile ? (
+                                            <Chip
+                                                size='sm'
+                                                variant='flat'
+                                                className='max-w-full bg-slate-100 text-xs text-slate-500'
+                                            >
+                                                {imageFile.name}
+                                            </Chip>
+                                        ) : null} */}
+                                    </div>
+                                    <div className=''>
+                                        <Button
+                                            onClick={() => void submitPost()}
+                                            isDisabled={!canSubmitPost}
+                                            // color='primary'
+                                            className='min-w-16 text-sm font-semibold bg-[#0F172B] text-slate-50 rounded-xl border border-gray-200 hover:bg-[#2c3243] cursor-pointer'
+                                        >
+                                            {posting ? 'Posting...' : 'Post'}
+                                        </Button>
+                                    </div>
+                                </div>
+                                {imagePreviewUrls.length > 0 ? (
+                                    <motion.div
+                                        layout
+                                        initial={{ opacity: 0, y: 4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{
+                                            duration: 0.18,
+                                            ease: 'easeOut',
+                                        }}
+                                        className='grid max-w-md grid-cols-2 gap-2 sm:grid-cols-4'
+                                    >
+                                        {imagePreviewUrls.map(
+                                            (previewUrl, index) => (
+                                                <div
+                                                    key={`${previewUrl}-${index}`}
+                                                    className='relative aspect-square overflow-hidden rounded-2xl border border-slate-200'
+                                                >
                                                     <Image
-                                                        src={
-                                                            post.authorAvatarUrl ??
-                                                            COMMENT_AVATAR_FALLBACK
-                                                        }
-                                                        alt={`${post.authorName ?? 'User'} avatar`}
+                                                        src={previewUrl}
+                                                        alt={`Selected image preview ${index + 1}`}
                                                         fill
-                                                        sizes='40px'
+                                                        unoptimized
                                                         className='object-cover'
                                                     />
-                                                </span>
-                                                <div className='min-w-0'>
-                                                    <p className='truncate text-sm font-semibold text-slate-800'>
-                                                        {post.authorName ??
-                                                            'Unknown'}
-                                                    </p>
-                                                    <p className='mt-1 text-xs text-slate-500'>
-                                                        {formatCommentTime(
-                                                            post.createdAt,
-                                                        )}
-                                                    </p>
                                                 </div>
-                                            </div>
-                                            <div className='flex items-center gap-2'>
-                                                {canReport ? (
-                                                    <Button
-                                                        onClick={() =>
-                                                            void onReportPost(
-                                                                post.id,
-                                                            )
-                                                        }
-                                                        isDisabled={busy}
-                                                        size='sm'
-                                                        radius='full'
-                                                        variant='flat'
-                                                        color='warning'
-                                                        className='text-[11px] font-semibold'
-                                                    >
-                                                        Report
-                                                    </Button>
-                                                ) : null}
-                                                {isAdmin ? (
-                                                    <Button
-                                                        onClick={() =>
-                                                            void onAdminDeletePost(
-                                                                post.id,
-                                                            )
-                                                        }
-                                                        isDisabled={busy}
-                                                        size='sm'
-                                                        radius='full'
-                                                        variant='flat'
-                                                        color='danger'
-                                                        className='text-[11px] font-semibold'
-                                                    >
-                                                        Delete
-                                                    </Button>
-                                                ) : null}
-                                            </div>
-                                        </div>
+                                            ),
+                                        )}
+                                    </motion.div>
+                                ) : null}
+                            </CardBody>
+                        </Card>
+                    </motion.div>
 
-                                        {post.content ? (
-                                            <p className='mt-3 text-sm text-slate-700'>
-                                                {post.content}
-                                            </p>
-                                        ) : null}
-                                        {post.imageUrl ? (
-                                            <div className='relative mt-3 overflow-hidden rounded-2xl border border-slate-200'>
-                                                <Image
-                                                    src={post.imageUrl}
-                                                    alt='Freedom wall attachment'
-                                                    width={1200}
-                                                    height={900}
-                                                    className='h-auto w-full object-cover'
-                                                />
-                                            </div>
-                                        ) : null}
+                    {status ? (
+                        <Card className='mb-4 border border-slate-200 bg-white'>
+                            <CardBody className='p-4 text-sm text-slate-600'>
+                                {status}
+                            </CardBody>
+                        </Card>
+                    ) : null}
 
-                                        <div className='mt-4 space-y-3'>
-                                            <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
-                                                <div className='inline-flex items-center gap-1.5'>
-                                                    <HeartIcon
-                                                        filled
-                                                        className='h-4 w-4 text-rose-500'
-                                                    />
-                                                    <span>{post.likes}</span>
-                                                </div>
-                                                <div className='inline-flex items-center gap-1.5'>
-                                                    <CommentIcon className='h-4 w-4 text-slate-500' />
-                                                    <span>{post.comments}</span>
-                                                </div>
-                                            </div>
-                                            <div className='grid grid-cols-2 gap-2'>
-                                                <Button
-                                                    onClick={() =>
-                                                        void onToggleLike(
-                                                            post.id,
-                                                        )
-                                                    }
-                                                    isDisabled={busy}
-                                                    radius='lg'
-                                                    variant='flat'
-                                                    className={`inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
-                                                        post.likedByCurrentUser
-                                                            ? 'border-rose-200 bg-rose-50 text-rose-600'
-                                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                                    }`}
-                                                >
-                                                    <HeartIcon
-                                                        filled={
-                                                            post.likedByCurrentUser
-                                                        }
-                                                        className={`h-4 w-4 ${post.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
-                                                    />
-                                                    <span>Like</span>
-                                                </Button>
-                                                <Button
-                                                    onClick={() =>
-                                                        void toggleComments(
-                                                            post.id,
-                                                        )
-                                                    }
-                                                    radius='lg'
-                                                    variant='flat'
-                                                    className={`inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
-                                                        commentsOpen
-                                                            ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
-                                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                                    }`}
-                                                >
-                                                    <CommentIcon
-                                                        className={`h-4 w-4 ${commentsOpen ? 'text-cyan-700' : 'text-slate-500'}`}
-                                                    />
-                                                    <span>
-                                                        {commentsOpen
-                                                            ? 'Hide'
-                                                            : 'Comment'}
-                                                    </span>
-                                                </Button>
-                                            </div>
-                                        </div>
+                    {!loading ? (
+                        <section className='space-y-4'>
+                            {items.map((post) => {
+                                const comments = commentsByPost[post.id] ?? [];
+                                const postImages =
+                                    resolveFreedomPostImages(post);
+                                const sortOrder =
+                                    commentSortByPost[post.id] ?? 'recent';
+                                const sortedComments = sortComments(
+                                    comments,
+                                    sortOrder,
+                                );
+                                const visibleCount =
+                                    visibleCommentsByPost[post.id] ??
+                                    Math.min(
+                                        COMMENTS_INITIAL_VISIBLE,
+                                        sortedComments.length,
+                                    );
+                                const visibleComments = sortedComments.slice(
+                                    0,
+                                    visibleCount,
+                                );
+                                const hasHiddenComments =
+                                    sortedComments.length > visibleCount;
+                                const commentTree = buildCommentTree(
+                                    visibleComments,
+                                    sortOrder,
+                                );
+                                const commentById = new Map(
+                                    visibleComments.map((comment) => [
+                                        comment.id,
+                                        comment,
+                                    ]),
+                                );
+                                const replyTarget = replyTargetByPost[post.id];
+                                const commentInput =
+                                    commentInputByPost[post.id] ?? '';
+                                const commentsOpen = Boolean(
+                                    openCommentsByPost[post.id],
+                                );
+                                const autoLoadComments = Boolean(
+                                    autoLoadCommentsByPost[post.id],
+                                );
+                                const busy = busyPostId === post.id;
 
-                                        {commentsOpen ? (
-                                            <div className='mt-4 space-y-3'>
-                                                <div className='flex flex-wrap items-center justify-end gap-2'>
-                                                    <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
-                                                        <span>Sort</span>
-                                                        <select
-                                                            value={sortOrder}
-                                                            onChange={(event) =>
-                                                                setCommentSortByPost(
-                                                                    (prev) => ({
-                                                                        ...prev,
-                                                                        [post.id]:
-                                                                            event
-                                                                                .target
-                                                                                .value as CommentSortOrder,
-                                                                    }),
-                                                                )
+                                return (
+                                    <Card
+                                        key={post.id}
+                                        id={`freedom-post-${post.id}`}
+                                        data-freedom-post-id={post.id}
+                                        className='border border-slate-200 bg-white shadow-sm rounded-2xl'
+                                    >
+                                        <CardBody className='p-5'>
+                                            <div className='flex items-start justify-between gap-3'>
+                                                <div className='flex items-center gap-3'>
+                                                    <span className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100'>
+                                                        <Image
+                                                            src={
+                                                                post.authorAvatarUrl ??
+                                                                COMMENT_AVATAR_FALLBACK
                                                             }
-                                                            className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
-                                                        >
-                                                            <option value='recent'>
-                                                                Recently added
-                                                            </option>
-                                                            <option value='oldest'>
-                                                                Oldest first
-                                                            </option>
-                                                        </select>
-                                                    </label>
-                                                </div>
-                                                {commentTree.length === 0 ? (
-                                                    <p className='text-xs text-slate-500'>
-                                                        No comments yet.
-                                                    </p>
-                                                ) : (
-                                                    <div className='space-y-2'>
-                                                        {renderComments(
-                                                            commentTree,
-                                                            post.id,
-                                                            commentById,
-                                                        )}
-                                                    </div>
-                                                )}
-                                                {hasHiddenComments &&
-                                                !autoLoadComments ? (
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => {
-                                                            setAutoLoadCommentsByPost(
-                                                                (prev) => ({
-                                                                    ...prev,
-                                                                    [post.id]: true,
-                                                                }),
-                                                            );
-                                                            revealMoreComments(
-                                                                post.id,
-                                                            );
-                                                        }}
-                                                        className='mx-auto block rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
-                                                    >
-                                                        Show more comments
-                                                    </button>
-                                                ) : null}
-                                                {hasHiddenComments ? (
-                                                    <div
-                                                        ref={(node) => {
-                                                            commentsAnchorByPostRef.current[
-                                                                post.id
-                                                            ] = node;
-                                                        }}
-                                                        data-post-id={post.id}
-                                                        className='h-2 w-full'
-                                                        aria-hidden='true'
-                                                    />
-                                                ) : null}
-
-                                                {!replyTarget ? (
-                                                    <div className='flex gap-2'>
-                                                        <input
-                                                            value={commentInput}
-                                                            onChange={(event) =>
-                                                                setCommentInputByPost(
-                                                                    (prev) => ({
-                                                                        ...prev,
-                                                                        [post.id]:
-                                                                            event
-                                                                                .target
-                                                                                .value,
-                                                                    }),
-                                                                )
-                                                            }
-                                                            placeholder='Write a comment'
-                                                            className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
+                                                            alt={`${post.authorName ?? 'User'} avatar`}
+                                                            fill
+                                                            sizes='40px'
+                                                            className='object-cover'
                                                         />
-                                                        <button
-                                                            type='button'
+                                                    </span>
+                                                    <div className='min-w-0'>
+                                                        <p className='truncate text-sm font-semibold text-slate-800'>
+                                                            {post.authorName ??
+                                                                'Unknown'}
+                                                        </p>
+                                                        <p className='mt-1 text-xs text-slate-500'>
+                                                            {formatCommentTime(
+                                                                post.createdAt,
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className='flex items-center gap-2'>
+                                                    {canReport ? (
+                                                        <Button
                                                             onClick={() =>
-                                                                void submitComment(
+                                                                void onReportPost(
                                                                     post.id,
                                                                 )
                                                             }
-                                                            disabled={busy}
-                                                            className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                                                            isDisabled={busy}
+                                                            size='sm'
+                                                            radius='full'
+                                                            variant='flat'
+                                                            color='warning'
+                                                            className='text-[11px] font-semibold border border-gray-200 hover:bg-slate-100'
                                                         >
-                                                            Send
-                                                        </button>
-                                                    </div>
-                                                ) : null}
-                                                <button
-                                                    type='button'
-                                                    onClick={() =>
-                                                        void toggleComments(
+                                                            Report
+                                                        </Button>
+                                                    ) : null}
+                                                    {isAdmin ? (
+                                                        <Button
+                                                            onClick={() =>
+                                                                void onAdminDeletePost(
+                                                                    post.id,
+                                                                )
+                                                            }
+                                                            isDisabled={busy}
+                                                            size='sm'
+                                                            radius='full'
+                                                            variant='flat'
+                                                            color='danger'
+                                                            className='text-[11px] font-semibold border border-gray-200 hover:bg-slate-100'
+                                                        >
+                                                            Delete
+                                                        </Button>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+
+                                            {post.content ? (
+                                                <p className='mt-3 text-sm text-slate-700'>
+                                                    {post.content}
+                                                </p>
+                                            ) : null}
+                                            {postImages.length > 0 ? (
+                                                <FreedomPostImageGrid
+                                                    images={postImages}
+                                                    onOpen={(index) =>
+                                                        openPostImage(
                                                             post.id,
+                                                            index,
                                                         )
                                                     }
-                                                    className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
-                                                >
-                                                    Hide all comments
-                                                </button>
+                                                />
+                                            ) : null}
+
+                                            <div className='mt-4 space-y-3'>
+                                                <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
+                                                    <div className='inline-flex items-center gap-1.5'>
+                                                        <HeartIcon
+                                                            filled
+                                                            className='h-4 w-4 text-rose-500'
+                                                        />
+                                                        <span>
+                                                            {post.likes}
+                                                        </span>
+                                                    </div>
+                                                    <div className='inline-flex items-center gap-1.5'>
+                                                        <CommentIcon className='h-4 w-4 text-slate-500' />
+                                                        <span>
+                                                            {post.comments}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className='grid grid-cols-2 gap-2 '>
+                                                    <Button
+                                                        onClick={() =>
+                                                            void onToggleLike(
+                                                                post.id,
+                                                            )
+                                                        }
+                                                        isDisabled={busy}
+                                                        radius='lg'
+                                                        variant='flat'
+                                                        className={`rounded-xl inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
+                                                            post.likedByCurrentUser
+                                                                ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                                        }`}
+                                                    >
+                                                        <HeartIcon
+                                                            filled={
+                                                                post.likedByCurrentUser
+                                                            }
+                                                            className={`h-4 w-4 ${post.likedByCurrentUser ? 'text-rose-600' : 'text-slate-500'}`}
+                                                        />
+                                                        <span>Like</span>
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() =>
+                                                            void toggleComments(
+                                                                post.id,
+                                                            )
+                                                        }
+                                                        radius='lg'
+                                                        variant='flat'
+                                                        className={`rounded-xl inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
+                                                            commentsOpen
+                                                                ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                                        }`}
+                                                    >
+                                                        <CommentIcon
+                                                            className={`h-4 w-4 ${commentsOpen ? 'text-cyan-700' : 'text-slate-500'}`}
+                                                        />
+                                                        <span>
+                                                            {commentsOpen
+                                                                ? 'Hide'
+                                                                : 'Comment'}
+                                                        </span>
+                                                    </Button>
+                                                </div>
                                             </div>
-                                        ) : null}
-                                    </CardBody>
-                                </Card>
-                            );
-                        })}
-                    </section>
-                ) : null}
-                <ConfirmDialog
-                    open={Boolean(confirmDeleteTarget)}
-                    title={confirmDeleteTitle}
-                    description={confirmDeleteDescription}
-                    confirmLabel='Delete'
-                    busy={confirmDeleteBusy}
-                    onCancel={() => {
-                        if (confirmDeleteBusy) return;
-                        setConfirmDeleteTarget(null);
-                    }}
-                    onConfirm={() => {
-                        void onConfirmDelete();
-                    }}
-                />
-                <StatusPopper
-                    open={Boolean(reportPopper)}
-                    message={reportPopper?.message ?? ''}
-                    tone={reportPopper?.tone ?? 'info'}
-                    onClose={() => setReportPopper(null)}
-                />
+
+                                            {commentsOpen ? (
+                                                <div className='mt-4 space-y-3'>
+                                                    <div className='flex flex-wrap items-center justify-end gap-2'>
+                                                        <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
+                                                            <span>Sort</span>
+                                                            <select
+                                                                value={
+                                                                    sortOrder
+                                                                }
+                                                                onChange={(
+                                                                    event,
+                                                                ) =>
+                                                                    setCommentSortByPost(
+                                                                        (
+                                                                            prev,
+                                                                        ) => ({
+                                                                            ...prev,
+                                                                            [post.id]:
+                                                                                event
+                                                                                    .target
+                                                                                    .value as CommentSortOrder,
+                                                                        }),
+                                                                    )
+                                                                }
+                                                                className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
+                                                            >
+                                                                <option value='recent'>
+                                                                    Recently
+                                                                    added
+                                                                </option>
+                                                                <option value='oldest'>
+                                                                    Oldest first
+                                                                </option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                    {commentTree.length ===
+                                                    0 ? (
+                                                        <p className='text-xs text-slate-500'>
+                                                            No comments yet.
+                                                        </p>
+                                                    ) : (
+                                                        <div className='space-y-2'>
+                                                            {renderComments(
+                                                                commentTree,
+                                                                post.id,
+                                                                commentById,
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    {hasHiddenComments &&
+                                                    !autoLoadComments ? (
+                                                        <button
+                                                            type='button'
+                                                            onClick={() => {
+                                                                setAutoLoadCommentsByPost(
+                                                                    (prev) => ({
+                                                                        ...prev,
+                                                                        [post.id]: true,
+                                                                    }),
+                                                                );
+                                                                revealMoreComments(
+                                                                    post.id,
+                                                                );
+                                                            }}
+                                                            className='mx-auto block rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                                        >
+                                                            Show more comments
+                                                        </button>
+                                                    ) : null}
+                                                    {hasHiddenComments ? (
+                                                        <div
+                                                            ref={(node) => {
+                                                                commentsAnchorByPostRef.current[
+                                                                    post.id
+                                                                ] = node;
+                                                            }}
+                                                            data-post-id={
+                                                                post.id
+                                                            }
+                                                            className='h-2 w-full'
+                                                            aria-hidden='true'
+                                                        />
+                                                    ) : null}
+
+                                                    {!replyTarget ? (
+                                                        <div className='flex gap-2'>
+                                                            <input
+                                                                value={
+                                                                    commentInput
+                                                                }
+                                                                onChange={(
+                                                                    event,
+                                                                ) =>
+                                                                    setCommentInputByPost(
+                                                                        (
+                                                                            prev,
+                                                                        ) => ({
+                                                                            ...prev,
+                                                                            [post.id]:
+                                                                                event
+                                                                                    .target
+                                                                                    .value,
+                                                                        }),
+                                                                    )
+                                                                }
+                                                                placeholder='Write a comment'
+                                                                className='flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-cyan-600'
+                                                            />
+                                                            <button
+                                                                type='button'
+                                                                onClick={() =>
+                                                                    void submitComment(
+                                                                        post.id,
+                                                                    )
+                                                                }
+                                                                disabled={busy}
+                                                                className='rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                                                            >
+                                                                Send
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
+                                                    <button
+                                                        type='button'
+                                                        onClick={() =>
+                                                            void toggleComments(
+                                                                post.id,
+                                                            )
+                                                        }
+                                                        className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                                    >
+                                                        Hide all comments
+                                                    </button>
+                                                </div>
+                                            ) : null}
+                                        </CardBody>
+                                    </Card>
+                                );
+                            })}
+                        </section>
+                    ) : null}
+                    {lightboxState && activeLightboxImage ? (
+                        <div
+                            className='fixed inset-0 z-[100] bg-black/90 p-3 md:p-6'
+                            onClick={(event) => {
+                                if (event.target === event.currentTarget) {
+                                    closePostImage();
+                                }
+                            }}
+                        >
+                            <button
+                                type='button'
+                                onClick={closePostImage}
+                                className='absolute right-4 top-[calc(env(safe-area-inset-top)+0.75rem)] z-30 rounded-full bg-white/20 px-3 py-1 text-sm font-semibold text-white hover:bg-white/30'
+                            >
+                                Close
+                            </button>
+                            {activeLightboxImages.length > 1 ? (
+                                <>
+                                    <button
+                                        type='button'
+                                        onClick={showPreviousPostImage}
+                                        className='absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
+                                    >
+                                        {'<'}
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={showNextPostImage}
+                                        className='absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/20 px-3 py-2 text-xl text-white hover:bg-white/30'
+                                    >
+                                        {'>'}
+                                    </button>
+                                </>
+                            ) : null}
+                            <div
+                                className='relative flex h-full items-center justify-center'
+                                onClick={closePostImage}
+                            >
+                                <AnimatePresence>
+                                    {lightboxImageLoading ? (
+                                        <motion.div
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
+                                            transition={{
+                                                duration: 0.2,
+                                                ease: 'easeOut',
+                                            }}
+                                            className='pointer-events-none absolute inset-0 z-10 grid place-items-center'
+                                        >
+                                            <motion.div
+                                                initial={{
+                                                    opacity: 0,
+                                                    y: 8,
+                                                    scale: 0.96,
+                                                }}
+                                                animate={{
+                                                    opacity: 1,
+                                                    y: 0,
+                                                    scale: 1,
+                                                }}
+                                                exit={{
+                                                    opacity: 0,
+                                                    y: 6,
+                                                    scale: 0.98,
+                                                }}
+                                                transition={{
+                                                    duration: 0.22,
+                                                    ease: 'easeOut',
+                                                }}
+                                                className='flex min-w-[200px] flex-col items-center gap-3 rounded-2xl border border-white/20 bg-black/35 px-5 py-4 backdrop-blur'
+                                            >
+                                                <motion.span
+                                                    className='h-9 w-9 rounded-full border-2 border-transparent border-r-cyan-200 border-t-sky-200'
+                                                    animate={{ rotate: 360 }}
+                                                    transition={{
+                                                        duration: 0.9,
+                                                        ease: 'linear',
+                                                        repeat:
+                                                            Number.POSITIVE_INFINITY,
+                                                    }}
+                                                />
+                                                <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-white/90'>
+                                                    Loading image...
+                                                </p>
+                                            </motion.div>
+                                        </motion.div>
+                                    ) : null}
+                                </AnimatePresence>
+                                <div
+                                    className='max-h-full max-w-full'
+                                    onClick={(event) => event.stopPropagation()}
+                                >
+                                    <Image
+                                        src={activeLightboxImage}
+                                        alt={`Freedom wall attachment ${activeLightboxIndex + 1}`}
+                                        width={2200}
+                                        height={1600}
+                                        className='max-h-[84vh] w-auto max-w-[94vw] object-contain'
+                                        onLoad={() =>
+                                            setLightboxLoadedSrc(
+                                                activeLightboxImage,
+                                            )
+                                        }
+                                        onError={() =>
+                                            setLightboxLoadedSrc(
+                                                activeLightboxImage,
+                                            )
+                                        }
+                                    />
+                                </div>
+                            </div>
+                            <div className='absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white'>
+                                {activeLightboxIndex + 1} /{' '}
+                                {activeLightboxImages.length}
+                            </div>
+                        </div>
+                    ) : null}
+                    <ConfirmDialog
+                        open={Boolean(confirmDeleteTarget)}
+                        title={confirmDeleteTitle}
+                        description={confirmDeleteDescription}
+                        confirmLabel='Delete'
+                        busy={confirmDeleteBusy}
+                        onCancel={() => {
+                            if (confirmDeleteBusy) return;
+                            setConfirmDeleteTarget(null);
+                        }}
+                        onConfirm={() => {
+                            void onConfirmDelete();
+                        }}
+                    />
+                    <StatusPopper
+                        open={Boolean(reportPopper)}
+                        message={reportPopper?.message ?? ''}
+                        tone={reportPopper?.tone ?? 'info'}
+                        onClose={() => setReportPopper(null)}
+                    />
+                </div>
             </AppShell>
         </AuthGuard>
     );

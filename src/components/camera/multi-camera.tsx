@@ -7,7 +7,7 @@ import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-cap
 import { getErrorMessage } from '@/lib/error-message';
 import { addPendingCapture } from '@/lib/offline-queue';
 import { fetchEventOptions, getCurrentUserProfile, uploadBatchCaptures } from '@/lib/supabase';
-import type { Visibility } from '@/lib/types';
+import type { UserRole, Visibility } from '@/lib/types';
 
 export function MultiCameraCapture() {
     const router = useRouter();
@@ -20,20 +20,24 @@ export function MultiCameraCapture() {
     const [eventOptions, setEventOptions] = useState<Array<{ id: string; name: string }>>([]);
     const [eventsLoading, setEventsLoading] = useState(true);
     const [visibility, setVisibility] = useState<Visibility>('campus');
+    const [role, setRole] = useState<UserRole | null>(null);
     const [status, setStatus] = useState('');
     const [isCapturing, setIsCapturing] = useState(false);
     const [captureNotice, setCaptureNotice] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const memberMustChooseTag = role === 'member';
 
     useEffect(() => {
         let mounted = true;
         getCurrentUserProfile()
             .then((profile) => {
                 if (!mounted || !profile) return;
+                setRole(profile.role);
                 setVisibility(profile.role === 'visitor' ? 'visitor' : 'campus');
             })
             .catch(() => {
                 if (!mounted) return;
+                setRole(null);
                 setVisibility('campus');
             });
         return () => {
@@ -60,6 +64,15 @@ export function MultiCameraCapture() {
             mounted = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (eventsLoading) return;
+        if (role !== 'member') return;
+        if (eventId) return;
+        const firstEventId = eventOptions[0]?.id ?? '';
+        if (!firstEventId) return;
+        setEventId(firstEventId);
+    }, [eventId, eventOptions, eventsLoading, role]);
 
     useEffect(() => {
         let stream: MediaStream | null = null;
@@ -116,6 +129,28 @@ export function MultiCameraCapture() {
             setStatus('Capture at least one image.');
             return;
         }
+        const cleanedCaption = caption.trim();
+        if (!cleanedCaption) {
+            setStatus('Caption is required.');
+            return;
+        }
+
+        if (memberMustChooseTag) {
+            if (eventsLoading) {
+                setStatus('Tags are still loading. Please wait a moment.');
+                return;
+            }
+            if (eventOptions.length === 0) {
+                setStatus(
+                    'No admin tags are available yet. Ask an admin to create tags first.',
+                );
+                return;
+            }
+            if (!eventId) {
+                setStatus('Select one admin tag before posting.');
+                return;
+            }
+        }
 
         setUploading(true);
         try {
@@ -125,7 +160,7 @@ export function MultiCameraCapture() {
                         addPendingCapture({
                             id: crypto.randomUUID(),
                             imageDataUrl,
-                            caption,
+                            caption: cleanedCaption,
                             visibility,
                             createdAt: new Date().toISOString(),
                         }),
@@ -139,7 +174,7 @@ export function MultiCameraCapture() {
 
             await uploadBatchCaptures({
                 captures,
-                caption,
+                caption: cleanedCaption,
                 visibility,
                 eventId: eventId || undefined,
             });
@@ -211,7 +246,7 @@ export function MultiCameraCapture() {
                     value={caption}
                     onChange={(event) => setCaption(event.target.value)}
                     disabled={uploading}
-                    placeholder='Optional caption for all captures'
+                    placeholder='Caption (required)'
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
                 <select
@@ -220,23 +255,36 @@ export function MultiCameraCapture() {
                     disabled={uploading || eventsLoading}
                     className='w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 >
-                    <option value=''>
-                        {eventsLoading ? 'Loading events...' : 'No specific event'}
-                    </option>
+                    {eventsLoading ? (
+                        <option value=''>Loading tags...</option>
+                    ) : null}
+                    {!eventsLoading && !memberMustChooseTag ? (
+                        <option value=''>No specific tag</option>
+                    ) : null}
+                    {!eventsLoading &&
+                    memberMustChooseTag &&
+                    eventOptions.length > 0 &&
+                    !eventId ? (
+                        <option value=''>Select tag</option>
+                    ) : null}
                     {eventOptions.map((eventOption) => (
                         <option key={eventOption.id} value={eventOption.id}>
                             {eventOption.name}
                         </option>
                     ))}
                 </select>
-                <p className='text-xs text-slate-500'>Assign an event so this post appears in Event folders and Date folder tags.</p>
+                <p className='text-xs text-slate-500'>
+                    {memberMustChooseTag
+                        ? 'For members, one admin tag is required before posting.'
+                        : 'Assign an event tag so this post appears in Event folders and Date folder tags.'}
+                </p>
                 <p className='text-xs text-slate-500'>
                     Visibility: <span className='font-semibold capitalize'>{visibility}</span>
                 </p>
                 <button
                     type='button'
                     onClick={() => void uploadAll()}
-                    disabled={uploading}
+                    disabled={uploading || caption.trim().length === 0}
                     className='w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
                 >
                     {uploading ? 'Posting...' : 'Upload All'}

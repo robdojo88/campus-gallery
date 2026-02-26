@@ -12,11 +12,14 @@ function shimmerTransition(delay = 0) {
     };
 }
 
-export function FeedLoader({ count = 3, compact = false }: { count?: number; compact?: boolean } = {}) {
+export function FeedLoader({
+    count = 3,
+    compact = false,
+}: { count?: number; compact?: boolean } = {}) {
     const placeholders = Array.from({ length: count });
 
     return (
-        <div className='mx-auto w-full max-w-3xl space-y-4'>
+        <div className='mx-auto w-full max-w-4xl space-y-4'>
             {placeholders.map((_, index) => (
                 <motion.article
                     key={`feed-loader-${index}`}

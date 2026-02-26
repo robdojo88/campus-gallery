@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import { Button, Card, CardBody, Chip } from '@heroui/react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AppShell } from '@/components/layout/app-shell';
@@ -54,16 +55,23 @@ function inferFileExtension(imageUrl: string, mimeType: string): string {
 
 export default function DateFolderDetailPage() {
     const params = useParams<{ date: string }>();
-    const folderDate = decodeURIComponent(Array.isArray(params?.date) ? params.date[0] : params?.date ?? '');
+    const folderDate = decodeURIComponent(
+        Array.isArray(params?.date) ? params.date[0] : (params?.date ?? ''),
+    );
     const [images, setImages] = useState<DateFolderImage[]>([]);
     const [status, setStatus] = useState('Loading folder...');
     const [downloadStatus, setDownloadStatus] = useState('');
     const [downloadingAll, setDownloadingAll] = useState(false);
     const [confirmDownloadOpen, setConfirmDownloadOpen] = useState(false);
     const [role, setRole] = useState<UserRole | null>(null);
-    const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
+    const [activeImageIndex, setActiveImageIndex] = useState<number | null>(
+        null,
+    );
 
-    const folderLabel = useMemo(() => formatDateLabel(folderDate), [folderDate]);
+    const folderLabel = useMemo(
+        () => formatDateLabel(folderDate),
+        [folderDate],
+    );
 
     useEffect(() => {
         let mounted = true;
@@ -96,8 +104,11 @@ export default function DateFolderDetailPage() {
 
                 const flattened = posts.flatMap((post) => {
                     const authorName = post.author?.name ?? 'Unknown';
-                    const capturedAt = new Date(post.createdAt).toLocaleString();
-                    const postImages = post.images.length > 0 ? post.images : [post.imageUrl];
+                    const capturedAt = new Date(
+                        post.createdAt,
+                    ).toLocaleString();
+                    const postImages =
+                        post.images.length > 0 ? post.images : [post.imageUrl];
 
                     return postImages.map((imageUrl, index) => ({
                         id: `${post.id}-${index}`,
@@ -109,10 +120,17 @@ export default function DateFolderDetailPage() {
                 });
 
                 setImages(flattened);
-                setStatus(flattened.length === 0 ? 'No captures in this date folder yet.' : '');
+                setStatus(
+                    flattened.length === 0
+                        ? 'No captures in this date folder yet.'
+                        : '',
+                );
             } catch (error) {
                 if (!mounted) return;
-                const message = error instanceof Error ? error.message : 'Failed to load date folder.';
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to load date folder.';
                 setStatus(message);
             }
         }
@@ -231,95 +249,114 @@ export default function DateFolderDetailPage() {
     return (
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
-                <PageHeader
-                    eyebrow='Folders'
-                    title='Date Folder'
-                    description={`Showing all captures for ${folderLabel}.`}
-                    action={
-                        <div className='flex flex-wrap items-center justify-end gap-2'>
-                            {role === 'admin' ? (
-                                <Button
-                                    onClick={() => setConfirmDownloadOpen(true)}
-                                    isDisabled={
-                                        downloadingAll || images.length === 0
-                                    }
-                                    variant='flat'
-                                    color='primary'
-                                    className='font-semibold'
-                                >
-                                    {downloadingAll
-                                        ? 'Downloading...'
-                                        : 'Download All Images'}
-                                </Button>
-                            ) : null}
-                            <Button
-                                as={Link}
-                                href='/gallery/date'
-                                variant='bordered'
-                                className='font-semibold text-slate-700'
-                            >
-                                Back to Date Folders
-                            </Button>
-                        </div>
-                    }
-                />
-
-                {status ? (
-                    <Card className='mb-4 border border-slate-200 bg-white'>
-                        <CardBody className='p-4 text-sm text-slate-600'>
-                            {status}
-                        </CardBody>
-                    </Card>
-                ) : null}
-                {downloadStatus ? (
-                    <Card className='mb-4 border border-slate-200 bg-white'>
-                        <CardBody className='p-4 text-sm text-slate-600'>
-                            {downloadStatus}
-                        </CardBody>
-                    </Card>
-                ) : null}
-
-                <section className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
-                    {images.map((item, index) => (
-                        <Card
-                            key={item.id}
-                            className='overflow-hidden border border-slate-200 bg-white shadow-sm'
-                        >
-                            <button
-                                type='button'
-                                onClick={() => openImage(index)}
-                                className='relative block aspect-square w-full'
-                            >
-                                <Image src={item.imageUrl} alt={`Capture by ${item.authorName}`} fill className='object-cover' />
-                                <div className='absolute left-2 top-2 flex flex-wrap items-center gap-1'>
-                                    <Chip
-                                        size='sm'
-                                        className='bg-black/70 text-[11px] font-semibold text-white'
+                <div className='mx-auto w-full max-w-4xl'>
+                    <PageHeader
+                        eyebrow='Folders'
+                        title='Date Folder'
+                        description={`Showing all captures for ${folderLabel}.`}
+                        action={
+                            <div className='flex flex-wrap items-center justify-end gap-2'>
+                                {role === 'admin' ? (
+                                    <Button
+                                        onClick={() =>
+                                            setConfirmDownloadOpen(true)
+                                        }
+                                        isDisabled={
+                                            downloadingAll ||
+                                            images.length === 0
+                                        }
+                                        variant='flat'
+                                        color='primary'
+                                        className='font-semibold px-4 py-2 rounded-lg shadow-sm hover:shadow-md transition-colors duration-150 hover:bg-cyan-100'
                                     >
-                                        {item.authorName}
-                                    </Chip>
-                                    {item.eventName ? (
-                                        <Chip
-                                            size='sm'
-                                            className='bg-cyan-700/90 text-[11px] font-semibold text-white'
-                                        >
-                                            {item.eventName}
-                                        </Chip>
-                                    ) : null}
-                                </div>
-                                <span className='absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-2 text-[11px] text-white'>
-                                    {item.capturedAt}
-                                </span>
-                            </button>
+                                        {downloadingAll
+                                            ? 'Downloading...'
+                                            : 'Download All Images'}
+                                    </Button>
+                                ) : null}
+                                <Button
+                                    as={Link}
+                                    href='/gallery/date'
+                                    variant='bordered'
+                                    className='font-semibold text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-100 transition-colors duration-150'
+                                >
+                                    Back to Date Folders
+                                </Button>
+                            </div>
+                        }
+                    />
+
+                    {status ? (
+                        <Card className='mb-4 border border-slate-200 bg-white'>
+                            <CardBody className='p-4 text-sm text-slate-600'>
+                                {status}
+                            </CardBody>
                         </Card>
-                    ))}
-                </section>
+                    ) : null}
+                    {downloadStatus ? (
+                        <Card className='mb-4 border border-slate-200 bg-white'>
+                            <CardBody className='p-4 text-sm text-slate-600'>
+                                {downloadStatus}
+                            </CardBody>
+                        </Card>
+                    ) : null}
+
+                    <section className='grid gap-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
+                        {images.map((item, index) => (
+                            <motion.div
+                                key={item.id}
+                                initial={{ opacity: 0.35, y: 8, scale: 0.99 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                transition={{
+                                    duration: 0.22,
+                                    ease: 'easeOut',
+                                    delay: Math.min(index * 0.04, 0.24),
+                                }}
+                            >
+                                <Card className='overflow-hidden border border-slate-200 bg-white shadow-sm '>
+                                    <button
+                                        type='button'
+                                        onClick={() => openImage(index)}
+                                        className='relative block aspect-square w-full'
+                                    >
+                                        <Image
+                                            src={item.imageUrl}
+                                            alt={`Capture by ${item.authorName}`}
+                                            fill
+                                            className='object-cover'
+                                        />
+                                        <div className='absolute left-2 top-2 flex flex-wrap items-center gap-1'>
+                                            <Chip
+                                                size='sm'
+                                                className='bg-black/70 text-[11px] font-semibold text-white'
+                                            >
+                                                {item.authorName}
+                                            </Chip>
+                                            {item.eventName ? (
+                                                <Chip
+                                                    size='sm'
+                                                    className='bg-cyan-700/90 text-[11px] font-semibold text-white'
+                                                >
+                                                    {item.eventName}
+                                                </Chip>
+                                            ) : null}
+                                        </div>
+                                        <span className='absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-2 text-[11px] text-white'>
+                                            {item.capturedAt}
+                                        </span>
+                                    </button>
+                                </Card>
+                            </motion.div>
+                        ))}
+                    </section>
+                </div>
 
                 {activeImageIndex !== null && images[activeImageIndex] ? (
                     <div
                         className='fixed inset-0 z-[100] bg-black/90 p-3 md:p-6'
                         onClick={(event) => {
-                            if (event.target === event.currentTarget) closeLightbox();
+                            if (event.target === event.currentTarget)
+                                closeLightbox();
                         }}
                     >
                         <button
@@ -347,8 +384,14 @@ export default function DateFolderDetailPage() {
                                 </button>
                             </>
                         ) : null}
-                        <div className='flex h-full items-center justify-center' onClick={closeLightbox}>
-                            <div className='max-h-full max-w-full' onClick={(event) => event.stopPropagation()}>
+                        <div
+                            className='flex h-full items-center justify-center'
+                            onClick={closeLightbox}
+                        >
+                            <div
+                                className='max-h-full max-w-full'
+                                onClick={(event) => event.stopPropagation()}
+                            >
                                 <Image
                                     src={images[activeImageIndex].imageUrl}
                                     alt={`Capture by ${images[activeImageIndex].authorName}`}

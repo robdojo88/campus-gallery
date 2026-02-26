@@ -248,7 +248,7 @@ function PostImageGrid({
     }
 
     return (
-        <div className='grid h-[58svh] grid-cols-2 grid-rows-2 gap-1 md:h-[60vh]'>
+        <div className='grid h-[58svh] grid-cols-2 grid-rows-2 gap-1 md:h-[60vh] '>
             {images.slice(0, 4).map((image, index) => {
                 const isLastVisible = index === 3;
                 return (
@@ -1293,12 +1293,12 @@ export function PostCard({
 
     return (
         <Card
-            className={`flex flex-col overflow-hidden border border-slate-200 bg-white shadow-sm ${
+            className={`flex flex-col overflow-hidden border border-slate-200 bg-white shadow-sm rounded-2xl ${
                 showEngagement ? 'min-h-[90svh] md:min-h-[90vh]' : ''
             }`}
         >
-            <CardBody className='p-0'>
-                <div className='p-4 md:p-5'>
+            <CardBody className='p-0 '>
+                <div className='p-4 md:p-5 '>
                     <div className='flex items-start justify-between gap-3'>
                         <div className='flex items-center gap-3'>
                             <button
@@ -1335,7 +1335,7 @@ export function PostCard({
                                     radius='full'
                                     variant='flat'
                                     color='warning'
-                                    className='text-[11px] font-semibold'
+                                    className='text-[11px] font-semibold border border-gray-200 hover:bg-slate-100'
                                 >
                                     Report
                                 </Button>
@@ -1348,7 +1348,7 @@ export function PostCard({
                                     radius='full'
                                     variant='flat'
                                     color='danger'
-                                    className='text-[11px] font-semibold'
+                                    className='text-[11px] font-semibold border border-gray-200 hover:bg-slate-100'
                                 >
                                     Delete
                                 </Button>
@@ -1363,7 +1363,7 @@ export function PostCard({
                 </div>
                 <PostImageGrid images={images} onOpen={openLightbox} />
                 {showFooterSection ? (
-                    <div className='space-y-3 p-4 md:p-5'>
+                    <div className='space-y-3 p-4 md:p-5 '>
                         {showEngagement ? (
                             <>
                                 <div className='flex items-center justify-between border-b border-slate-200 pb-2 text-sm text-slate-600'>
@@ -1379,12 +1379,12 @@ export function PostCard({
                                         <span>{commentsCount}</span>
                                     </div>
                                 </div>
-                                <div className='grid grid-cols-2 gap-2'>
+                                <div className='grid grid-cols-2 gap-2 '>
                                     <Button
                                         onClick={() => void onToggleLike()}
                                         radius='lg'
                                         variant='flat'
-                                        className={`inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
+                                        className={`rounded-xl inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
                                             liked
                                                 ? 'border-rose-200 bg-rose-50 text-rose-600'
                                                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -1414,7 +1414,7 @@ export function PostCard({
                                         }
                                         radius='lg'
                                         variant='flat'
-                                        className={`inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
+                                        className={`rounded-xl inline-flex items-center justify-center gap-2 border text-sm font-semibold transition ${
                                             showComments
                                                 ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
                                                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -1461,7 +1461,7 @@ export function PostCard({
                                             type='submit'
                                             radius='lg'
                                             color='primary'
-                                            className='text-xs font-semibold'
+                                            className='text-xs font-semibold bg-[#0F172B] text-slate-50 rounded-xl border border-gray-200 hover:bg-[#2c3243]'
                                         >
                                             Send
                                         </Button>
@@ -1506,7 +1506,9 @@ export function PostCard({
                                             </p>
                                         ) : (
                                             <div className='space-y-2'>
-                                                {renderCommentNodes(commentTree)}
+                                                {renderCommentNodes(
+                                                    commentTree,
+                                                )}
                                             </div>
                                         )}
                                         {commentsHasMore ? (

@@ -195,7 +195,7 @@ export default function FeedPage() {
                     </Card>
                 ) : null}
                 {!loading && campusPosts.length > 0 ? (
-                    <div className='mx-auto w-full max-w-3xl space-y-4'>
+                    <div className='mx-auto w-full max-w-4xl space-y-4'>
                         {campusPosts.map((post) => (
                             <div
                                 key={post.id}
@@ -211,7 +211,10 @@ export default function FeedPage() {
                                     }
                                     onPostDeleted={() => refreshLoaded()}
                                     isAdminViewer={isAdminViewer}
-                                    allowCommenting={viewerRole === 'admin' || viewerRole === 'member'}
+                                    allowCommenting={
+                                        viewerRole === 'admin' ||
+                                        viewerRole === 'member'
+                                    }
                                 />
                             </div>
                         ))}
@@ -242,4 +245,3 @@ export default function FeedPage() {
         </AuthGuard>
     );
 }
-

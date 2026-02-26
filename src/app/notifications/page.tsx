@@ -575,9 +575,9 @@ export default function NotificationsPage() {
         <AuthGuard roles={['admin', 'member']}>
             <AppShell>
                 <PageHeader
-                    eyebrow='Account'
+                    eyebrow=''
                     title='Notifications'
-                    description='Realtime alerts for likes, comments, new events, and key activity across KATOL.'
+                    description=''
                     action={
                         <Button
                             onClick={() => void onMarkAllRead()}
@@ -770,4 +770,3 @@ export default function NotificationsPage() {
         </AuthGuard>
     );
 }
-

@@ -13,8 +13,10 @@ export default function Home() {
                         KATOL
                     </h1>
                     <p className='max-w-2xl text-base text-slate-600 md:text-lg'>
-                        Keep All Thoughts On Loop, where Spread the Spark. Light
-                        It. Post It.
+                        <strong>K</strong>eep <strong>A</strong>ll{' '}
+                        <strong>T</strong>houghts <strong>O</strong>n{' '}
+                        <strong>L</strong>oop, where Spread the Spark. Light It.
+                        Post It.
                     </p>
                     <div className='flex flex-wrap gap-3'>
                         <Link

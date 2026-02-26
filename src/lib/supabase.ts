@@ -175,7 +175,7 @@ type DbStudentRegistry = {
     last_name: string;
     course: string | null;
     year_level: number | null;
-    email: string;
+    email?: string | null;
     status: string;
     created_at: string;
     updated_at: string;
@@ -208,6 +208,7 @@ const INCOGNITO_ALIAS_PATTERN = /^[A-Za-z0-9._-]{3,24}$/;
 const INCOGNITO_ALIAS_RULES = 'Incognito alias must be 3-24 characters and use letters, numbers, dot, underscore, or hyphen.';
 const PENDING_LOGIN_USN_KEY = 'ripple_pending_login_usn';
 const HASHTAG_PATTERN = /(^|\s)#([A-Za-z0-9_]{2,32})/g;
+const FREEDOM_POST_IMAGE_LIMIT = 4;
 
 let browserClient: SupabaseClient | null = null;
 let sessionRecoveryPromise: Promise<void> | null = null;
@@ -243,6 +244,14 @@ function toNonEmptyString(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     return trimmed ? trimmed : null;
+}
+
+function requirePostCaption(value: string | null | undefined): string {
+    const caption = toNonEmptyString(value);
+    if (!caption) {
+        throw new Error('Caption is required.');
+    }
+    return caption;
 }
 
 function getNotificationDataString(
@@ -348,7 +357,6 @@ function mapStudentRegistryRow(row: DbStudentRegistry): StudentRegistryEntry {
         fullName: `${firstName} ${lastName}`.trim(),
         course,
         yearLevel: row.year_level ?? undefined,
-        email: row.email,
         status: normalizeStudentRegistryStatus(row.status),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -372,6 +380,34 @@ function normalizeCaptureUrl(imageUrl: string): string {
     }
 
     return imageUrl;
+}
+
+function parseFreedomWallImageUrls(value: string | null): string[] {
+    const raw = toNonEmptyString(value);
+    if (!raw) return [];
+
+    if (raw.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return parsed
+                    .map((entry) => toNonEmptyString(entry))
+                    .filter((entry): entry is string => Boolean(entry))
+                    .slice(0, FREEDOM_POST_IMAGE_LIMIT)
+                    .map((entry) => normalizeCaptureUrl(entry));
+            }
+        } catch {
+            // Fall through and treat as a legacy single URL string.
+        }
+    }
+
+    return [normalizeCaptureUrl(raw)];
+}
+
+function serializeFreedomWallImageUrls(imageUrls: string[]): string | null {
+    if (imageUrls.length === 0) return null;
+    if (imageUrls.length === 1) return imageUrls[0];
+    return JSON.stringify(imageUrls.slice(0, FREEDOM_POST_IMAGE_LIMIT));
 }
 
 function normalizeUuid(value?: string): string | undefined {
@@ -423,7 +459,6 @@ function normalizeStudentRegistryPayload(input: StudentRegistryUpsertInput): {
     last_name: string;
     course: string | null;
     year_level: number | null;
-    email: string;
     status: StudentRegistryStatus;
 } {
     const usn = input.usn.trim().toUpperCase();
@@ -441,14 +476,6 @@ function normalizeStudentRegistryPayload(input: StudentRegistryUpsertInput): {
         throw new Error('Last name is required.');
     }
 
-    const email = normalizeEmail(input.email);
-    if (!email) {
-        throw new Error('Email is required.');
-    }
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailPattern.test(email)) {
-        throw new Error('Email format is invalid.');
-    }
 
     const courseInput = toNonEmptyString(input.course);
     const course = courseInput ? normalizeTitleCase(courseInput) : null;
@@ -470,7 +497,6 @@ function normalizeStudentRegistryPayload(input: StudentRegistryUpsertInput): {
         last_name: lastName,
         course,
         year_level: yearLevel,
-        email,
         status,
     };
 }
@@ -1214,7 +1240,7 @@ export async function resendConfirmationEmail(email: string): Promise<void> {
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
     const { error } = await supabase.auth.resend({
         type: 'signup',
-        email,
+        email: normalizeEmail(email),
         options: {
             emailRedirectTo: redirectTo,
         },
@@ -1324,6 +1350,32 @@ async function uploadOneCapture(input: {
     return { path: filePath, publicUrl };
 }
 
+async function requireMemberEventTag(
+    supabase: SupabaseClient,
+    eventId: string | null | undefined,
+): Promise<void> {
+    const profile = await getCurrentUserProfile();
+    if (profile?.role !== 'member') return;
+
+    if (!eventId) {
+        throw new Error(
+            'Members must choose an admin-managed tag before posting.',
+        );
+    }
+
+    const { data, error } = await supabase
+        .from('events')
+        .select('id')
+        .eq('id', eventId)
+        .maybeSingle<{ id: string }>();
+    if (error) throw toAppError(error);
+    if (!data) {
+        throw new Error(
+            'Selected tag is unavailable. Choose one from admin tags.',
+        );
+    }
+}
+
 export async function uploadCapturedImage(
     imageDataUrl: string,
     options: {
@@ -1335,13 +1387,15 @@ export async function uploadCapturedImage(
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in to upload.');
+    const cleanedCaption = requirePostCaption(options.caption);
 
     const safeEventId = normalizeUuid(options.eventId);
+    await requireMemberEventTag(supabase, safeEventId);
 
     const uploaded = await uploadOneCapture({
         userId: user.id,
         imageDataUrl,
-        caption: options.caption,
+        caption: cleanedCaption,
         visibility: options.visibility ?? 'campus',
         eventId: safeEventId,
     });
@@ -1351,7 +1405,7 @@ export async function uploadCapturedImage(
         .insert({
             user_id: user.id,
             image_url: uploaded.publicUrl,
-            caption: options.caption ?? null,
+            caption: cleanedCaption,
             visibility: options.visibility ?? 'campus',
             event_id: safeEventId ?? null,
         })
@@ -1386,7 +1440,9 @@ export async function uploadBatchCaptures(input: {
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in to upload.');
     if (input.captures.length === 0) throw new Error('No captures to upload.');
+    const cleanedCaption = requirePostCaption(input.caption);
     const safeEventId = normalizeUuid(input.eventId);
+    await requireMemberEventTag(supabase, safeEventId);
 
     const createdFiles: { path: string; publicUrl: string }[] = [];
     try {
@@ -1394,7 +1450,7 @@ export async function uploadBatchCaptures(input: {
             const uploaded = await uploadOneCapture({
                 userId: user.id,
                 imageDataUrl,
-                caption: input.caption,
+                caption: cleanedCaption,
                 visibility: input.visibility ?? 'campus',
                 eventId: safeEventId,
             });
@@ -1411,7 +1467,7 @@ export async function uploadBatchCaptures(input: {
             .insert({
                 user_id: user.id,
                 image_url: coverUrl,
-                caption: input.caption ?? null,
+                caption: cleanedCaption,
                 visibility: input.visibility ?? 'campus',
                 event_id: safeEventId ?? null,
             })
@@ -1452,8 +1508,10 @@ export async function createPostWithImages(input: {
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in to upload.');
     if (input.imageUrls.length === 0) throw new Error('No images for post.');
+    const cleanedCaption = requirePostCaption(input.caption);
 
     const safeEventId = normalizeUuid(input.eventId);
+    await requireMemberEventTag(supabase, safeEventId);
     const coverUrl = input.imageUrls[0];
 
     const { data: postRow, error: postInsertError } = await supabase
@@ -1461,7 +1519,7 @@ export async function createPostWithImages(input: {
         .insert({
             user_id: user.id,
             image_url: coverUrl,
-            caption: input.caption ?? null,
+            caption: cleanedCaption,
             visibility: input.visibility ?? 'campus',
             event_id: safeEventId ?? null,
         })
@@ -2023,18 +2081,22 @@ export async function fetchFreedomPosts(): Promise<FreedomPost[]> {
         likesRows.filter((like) => like.user_id === user?.id).map((like) => like.post_id),
     );
 
-    return rows.map((row) => ({
-        id: row.id,
-        authorId: row.user_id,
-        authorName: names.get(row.user_id) ?? 'Unknown',
-        authorAvatarUrl: avatarUrls.get(row.user_id) ?? DEFAULT_AVATAR_URL,
-        content: row.content,
-        imageUrl: row.image_url ? normalizeCaptureUrl(row.image_url) : undefined,
-        likes: likeCounts[row.id] ?? 0,
-        comments: commentCounts[row.id] ?? 0,
-        likedByCurrentUser: likedPostIds.has(row.id),
-        createdAt: row.created_at,
-    }));
+    return rows.map((row) => {
+        const normalizedImages = parseFreedomWallImageUrls(row.image_url);
+        return {
+            id: row.id,
+            authorId: row.user_id,
+            authorName: names.get(row.user_id) ?? 'Unknown',
+            authorAvatarUrl: avatarUrls.get(row.user_id) ?? DEFAULT_AVATAR_URL,
+            content: row.content,
+            imageUrl: normalizedImages[0],
+            images: normalizedImages,
+            likes: likeCounts[row.id] ?? 0,
+            comments: commentCounts[row.id] ?? 0,
+            likedByCurrentUser: likedPostIds.has(row.id),
+            createdAt: row.created_at,
+        };
+    });
 }
 
 async function uploadFreedomWallImage(userId: string, file: File): Promise<{ path: string; publicUrl: string }> {
@@ -2057,36 +2119,55 @@ async function uploadFreedomWallImage(userId: string, file: File): Promise<{ pat
     return { path: filePath, publicUrl };
 }
 
-export async function createFreedomPost(input: string | { content?: string; imageFile?: File | null }): Promise<void> {
+export async function createFreedomPost(input: string | { content?: string; imageFile?: File | null; imageFiles?: File[] | null }): Promise<void> {
     const supabase = getSupabase();
     const user = await getSessionUser();
     if (!user) throw new Error('You must be logged in.');
 
     const rawContent = typeof input === 'string' ? input : input.content ?? '';
-    const cleanedContent = rawContent.trim();
-    const imageFile = typeof input === 'string' ? null : input.imageFile ?? null;
+    const cleanedContent = requirePostCaption(rawContent);
+    const providedImageFiles = typeof input === 'string'
+        ? []
+        : (input.imageFiles ?? []).filter(
+            (file): file is File => file instanceof File,
+        );
+    const fallbackImageFile = typeof input === 'string' ? null : input.imageFile ?? null;
+    const normalizedFiles = (
+        providedImageFiles.length > 0
+            ? providedImageFiles
+            : fallbackImageFile
+                ? [fallbackImageFile]
+                : []
+    ).slice(0, FREEDOM_POST_IMAGE_LIMIT);
 
-    if (!cleanedContent && !imageFile) {
-        throw new Error('Write something or choose an image.');
+    if (
+        typeof input !== 'string' &&
+        (input.imageFiles?.length ?? 0) > FREEDOM_POST_IMAGE_LIMIT
+    ) {
+        throw new Error(
+            `You can upload up to ${FREEDOM_POST_IMAGE_LIMIT} images.`,
+        );
     }
 
-    let uploadedPath: string | null = null;
-    let uploadedUrl: string | null = null;
+    const uploadedPaths: string[] = [];
+    const uploadedUrls: string[] = [];
 
-    if (imageFile) {
+    for (const imageFile of normalizedFiles) {
         const uploaded = await uploadFreedomWallImage(user.id, imageFile);
-        uploadedPath = uploaded.path;
-        uploadedUrl = uploaded.publicUrl;
+        uploadedPaths.push(uploaded.path);
+        uploadedUrls.push(uploaded.publicUrl);
     }
+
+    const serializedImageUrls = serializeFreedomWallImageUrls(uploadedUrls);
 
     const { error } = await supabase.from('freedom_wall_posts').insert({
         user_id: user.id,
         content: cleanedContent,
-        image_url: uploadedUrl,
+        image_url: serializedImageUrls,
     });
     if (error) {
-        if (uploadedPath) {
-            await supabase.storage.from('captures').remove([uploadedPath]);
+        if (uploadedPaths.length > 0) {
+            await supabase.storage.from('captures').remove(uploadedPaths);
         }
         throw toAppError(error);
     }
@@ -3362,7 +3443,7 @@ export async function upsertStudentRegistryEntry(
                 );
             }
             if (isUniqueViolationError(error)) {
-                throw new Error('USN or email already exists for another student.');
+                throw new Error('USN already exists for another student.');
             }
             throw toAppError(error);
         }
@@ -3384,7 +3465,7 @@ export async function upsertStudentRegistryEntry(
             );
         }
         if (isUniqueViolationError(error)) {
-            throw new Error('USN or email already exists for another student.');
+            throw new Error('USN already exists for another student.');
         }
         throw toAppError(error);
     }
@@ -3415,7 +3496,7 @@ export async function bulkUpsertStudentRegistry(
             );
         }
         if (isUniqueViolationError(error)) {
-            throw new Error('Import failed because at least one email or USN is duplicated.');
+            throw new Error('Import failed because at least one USN is duplicated.');
         }
         throw toAppError(error);
     }

@@ -28,12 +28,16 @@ export function OfflineSync() {
             try {
                 const pending = await getPendingCaptures();
                 for (const item of pending) {
-                    await uploadCapturedImage(item.imageDataUrl, {
-                        caption: item.caption,
-                        visibility: item.visibility,
-                        eventId: item.eventId,
-                    });
-                    await removePendingCapture(item.id);
+                    try {
+                        await uploadCapturedImage(item.imageDataUrl, {
+                            caption: item.caption,
+                            visibility: item.visibility,
+                            eventId: item.eventId,
+                        });
+                        await removePendingCapture(item.id);
+                    } catch {
+                        // Keep this item in queue and continue syncing others.
+                    }
                 }
             } catch {
                 // Keep pending items for future retries.
