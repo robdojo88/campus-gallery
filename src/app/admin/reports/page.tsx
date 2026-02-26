@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { AdminPanelShell } from '@/components/admin/admin-panel-shell';
 import { AppShell } from '@/components/layout/app-shell';
@@ -37,7 +37,7 @@ function formatTargetLabel(report: ContentReport): string {
     return 'Incognito Comment';
 }
 
-export default function AdminReportsPage() {
+function AdminReportsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [filter, setFilter] = useState<ReportFilter>('open');
@@ -569,5 +569,25 @@ export default function AdminReportsPage() {
                 </AdminPanelShell>
             </AppShell>
         </AuthGuard>
+    );
+}
+
+export default function AdminReportsPage() {
+    return (
+        <Suspense
+            fallback={
+                <AuthGuard roles={['admin']}>
+                    <AppShell>
+                        <AdminPanelShell>
+                            <p className='rounded-[22px] border border-slate-200/90 bg-white/70 px-4 py-3 text-sm text-slate-600 shadow-[0_20px_38px_-30px_rgba(15,23,42,0.65)] backdrop-blur-xl'>
+                                Loading moderation queue...
+                            </p>
+                        </AdminPanelShell>
+                    </AppShell>
+                </AuthGuard>
+            }
+        >
+            <AdminReportsPageContent />
+        </Suspense>
     );
 }
