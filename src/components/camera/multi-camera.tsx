@@ -3,7 +3,10 @@
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
+import {
+    captureFrameAsDataUrl,
+    getHighResolutionStream,
+} from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
 import {
     OFFLINE_QUEUE_CHANGED_EVENT,
@@ -26,6 +29,24 @@ function getFallbackVisibilityFromCachedRole(): Visibility {
         ?.trim()
         .toLowerCase();
     return cachedRole === 'visitor' ? 'visitor' : 'campus';
+}
+
+function CaptureIcon({ className = 'h-5 w-5' }: { className?: string }) {
+    return (
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={className}
+            fill='none'
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
+            <path d='M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z' />
+            <circle cx='12' cy='13' r='4' />
+        </svg>
+    );
 }
 
 export function MultiCameraCapture() {
@@ -69,7 +90,10 @@ export function MultiCameraCapture() {
         };
 
         void refreshPendingQueueCount();
-        window.addEventListener(OFFLINE_QUEUE_CHANGED_EVENT, handleQueueChanged);
+        window.addEventListener(
+            OFFLINE_QUEUE_CHANGED_EVENT,
+            handleQueueChanged,
+        );
         window.addEventListener('focus', handleQueueChanged);
         return () => {
             mounted = false;
@@ -86,7 +110,9 @@ export function MultiCameraCapture() {
         getCurrentUserProfile()
             .then((profile) => {
                 if (!mounted) return;
-                setVisibility(profile?.role === 'visitor' ? 'visitor' : 'campus');
+                setVisibility(
+                    profile?.role === 'visitor' ? 'visitor' : 'campus',
+                );
             })
             .catch(() => {
                 if (!mounted) return;
@@ -160,7 +186,10 @@ export function MultiCameraCapture() {
         if (!videoRef.current || !canvasRef.current) return;
         setIsCapturing(true);
         try {
-            const imageData = await captureFrameAsDataUrl(videoRef.current, canvasRef.current);
+            const imageData = await captureFrameAsDataUrl(
+                videoRef.current,
+                canvasRef.current,
+            );
             setCaptures((prev) => [...prev, imageData]);
             setStatus('');
             setCaptureNotice(true);
@@ -179,7 +208,11 @@ export function MultiCameraCapture() {
         }
     }
 
-    const captureButtonLabel = isCapturing ? 'Capturing...' : captureNotice ? 'Captured!' : 'Add Capture';
+    const captureButtonLabel = isCapturing
+        ? 'Capturing...'
+        : captureNotice
+          ? 'Captured!'
+          : 'Add Capture';
 
     async function uploadAll() {
         if (uploading) return;
@@ -239,7 +272,9 @@ export function MultiCameraCapture() {
                 caption: cleanedCaption,
                 visibility,
             });
-            setStatus('Batch upload successful. No partial uploads were committed.');
+            setStatus(
+                'Batch upload successful. No partial uploads were committed.',
+            );
             setCaptures([]);
             setCaption('');
             router.push('/feed');
@@ -258,32 +293,55 @@ export function MultiCameraCapture() {
         <section className='-mx-4 -mt-6 grid gap-6 lg:mx-0 lg:mt-0 lg:grid-cols-[1.1fr_0.9fr]'>
             <article className='overflow-hidden bg-white shadow-sm lg:rounded-3xl lg:border lg:border-slate-200'>
                 <div className='relative h-[100dvh] bg-slate-900 lg:aspect-[4/3] lg:h-auto'>
-                    <video ref={videoRef} autoPlay playsInline muted className='h-full w-full object-cover' />
-                    <div className='absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-slate-900/90 via-slate-900/55 to-transparent p-4 lg:hidden'>
-                        <p className='text-xs font-semibold text-white'>
-                            Captures: <span className='font-bold'>{captures.length}</span>
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className='h-full w-full object-cover'
+                    />
+                    <div className='absolute inset-x-0 bottom-0 lg:hidden'>
+                        <div className='pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-900/90 via-slate-900/45 to-transparent' />
+                        <div className='relative flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+0.9rem)]'>
+                            <button
+                                type='button'
+                                onClick={() => void captureFrame()}
+                                disabled={uploading || isCapturing}
+                                aria-label={captureButtonLabel}
+                                className='group relative grid h-[4.6rem] w-[4.6rem] place-items-center rounded-full border-4 border-white/95 bg-white/15 shadow-[0_16px_30px_-18px_rgba(0,0,0,0.95)] backdrop-blur-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                                <span
+                                    className={`grid h-[3.35rem] w-[3.35rem] place-items-center rounded-full transition ${
+                                        captureNotice
+                                            ? 'bg-emerald-200 text-emerald-900'
+                                            : 'bg-white text-slate-900'
+                                    }`}
+                                >
+                                    <CaptureIcon className='h-6 w-6' />
+                                </span>
+                            </button>
+                        </div>
+                        <p className='absolute left-4 bottom-[calc(env(safe-area-inset-bottom)+1.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white'>
+                            Captures:{' '}
+                            <span className='font-bold'>{captures.length}</span>
                         </p>
-                        <button
-                            type='button'
-                            onClick={() => void captureFrame()}
-                            disabled={uploading || isCapturing}
-                            className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
-                        >
-                            {captureButtonLabel}
-                        </button>
                     </div>
                 </div>
                 <div className='hidden items-center justify-between gap-3 p-4 lg:flex'>
                     <p className='text-sm text-slate-600'>
-                        Captures: <span className='font-semibold text-slate-900'>{captures.length}</span>
+                        Captures:{' '}
+                        <span className='font-semibold text-slate-900'>
+                            {captures.length}
+                        </span>
                     </p>
                     <button
                         type='button'
                         onClick={() => void captureFrame()}
                         disabled={uploading || isCapturing}
-                        className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
+                        className='inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                     >
-                        {captureButtonLabel}
+                        <CaptureIcon className='h-4 w-4' />
+                        <span>{captureButtonLabel}</span>
                     </button>
                 </div>
             </article>
@@ -303,7 +361,9 @@ export function MultiCameraCapture() {
                         />
                     ))}
                     {captures.length === 0 ? (
-                        <p className='col-span-3 py-6 text-center text-sm text-slate-500'>No captures yet.</p>
+                        <p className='col-span-3 py-6 text-center text-sm text-slate-500'>
+                            No captures yet.
+                        </p>
                     ) : null}
                 </div>
                 <textarea
@@ -320,17 +380,22 @@ export function MultiCameraCapture() {
                     <p className='mt-1 font-semibold text-slate-900'>
                         {currentEventLoading
                             ? 'Loading...'
-                            : currentEvent?.name ?? 'Not set by admin'}
+                            : (currentEvent?.name ?? 'Not set by admin')}
                     </p>
                 </div>
                 <p className='text-xs text-slate-500'>
-                    Event tags are managed by admin. Every feed post is auto-tagged with the current event.
+                    Event tags are managed by admin. Every feed post is
+                    auto-tagged with the current event.
                 </p>
                 <p className='text-xs text-slate-500'>
-                    Visibility: <span className='font-semibold capitalize'>{visibility}</span>
+                    Visibility:{' '}
+                    <span className='font-semibold capitalize'>
+                        {visibility}
+                    </span>
                 </p>
                 <p className='text-xs text-slate-500'>
-                    Pending uploads: <span className='font-semibold'>{pendingQueueCount}</span>
+                    Pending uploads:{' '}
+                    <span className='font-semibold'>{pendingQueueCount}</span>
                 </p>
                 <button
                     type='button'
@@ -340,7 +405,9 @@ export function MultiCameraCapture() {
                 >
                     {uploading ? 'Posting...' : 'Upload All'}
                 </button>
-                {status ? <p className='text-sm text-slate-700'>{status}</p> : null}
+                {status ? (
+                    <p className='text-sm text-slate-700'>{status}</p>
+                ) : null}
             </article>
             <canvas ref={canvasRef} className='hidden' />
         </section>

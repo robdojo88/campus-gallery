@@ -1361,7 +1361,7 @@ export default function FreedomWallPage() {
                     ) : null} */}
 
                     {!loading ? (
-                        <section className='space-y-4'>
+                        <section className='space-y-0 md:space-y-4'>
                             {items.map((post) => {
                                 const comments = commentsByPost[post.id] ?? [];
                                 const postImages =
@@ -1388,6 +1388,9 @@ export default function FreedomWallPage() {
                                     visibleComments,
                                     sortOrder,
                                 );
+                                const showExpandedCommentControls =
+                                    sortedComments.length >
+                                    COMMENTS_INITIAL_VISIBLE;
                                 const commentById = new Map(
                                     visibleComments.map((comment) => [
                                         comment.id,
@@ -1410,7 +1413,7 @@ export default function FreedomWallPage() {
                                         key={post.id}
                                         id={`freedom-post-${post.id}`}
                                         data-freedom-post-id={post.id}
-                                        className='border border-slate-200 bg-white shadow-sm rounded-2xl'
+                                        className='border-y border-slate-200 bg-white shadow-none rounded-none md:rounded-2xl md:border md:shadow-sm'
                                     >
                                         <CardBody className='p-5'>
                                             <div className='flex items-start justify-between gap-3'>
@@ -1564,40 +1567,42 @@ export default function FreedomWallPage() {
 
                                             {commentsOpen ? (
                                                 <div className='mt-4 space-y-3'>
-                                                    <div className='flex flex-wrap items-center justify-end gap-2'>
-                                                        <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
-                                                            <span>Sort</span>
-                                                            <select
-                                                                value={
-                                                                    sortOrder
-                                                                }
-                                                                onChange={(
-                                                                    event,
-                                                                ) =>
-                                                                    setCommentSortByPost(
-                                                                        (
-                                                                            prev,
-                                                                        ) => ({
-                                                                            ...prev,
-                                                                            [post.id]:
-                                                                                event
-                                                                                    .target
-                                                                                    .value as CommentSortOrder,
-                                                                        }),
-                                                                    )
-                                                                }
-                                                                className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
-                                                            >
-                                                                <option value='recent'>
-                                                                    Recently
-                                                                    added
-                                                                </option>
-                                                                <option value='oldest'>
-                                                                    Oldest first
-                                                                </option>
-                                                            </select>
-                                                        </label>
-                                                    </div>
+                                                    {showExpandedCommentControls ? (
+                                                        <div className='flex flex-wrap items-center justify-end gap-2'>
+                                                            <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
+                                                                <span>Sort</span>
+                                                                <select
+                                                                    value={
+                                                                        sortOrder
+                                                                    }
+                                                                    onChange={(
+                                                                        event,
+                                                                    ) =>
+                                                                        setCommentSortByPost(
+                                                                            (
+                                                                                prev,
+                                                                            ) => ({
+                                                                                ...prev,
+                                                                                [post.id]:
+                                                                                    event
+                                                                                        .target
+                                                                                        .value as CommentSortOrder,
+                                                                            }),
+                                                                        )
+                                                                    }
+                                                                    className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
+                                                                >
+                                                                    <option value='recent'>
+                                                                        Recently
+                                                                        added
+                                                                    </option>
+                                                                    <option value='oldest'>
+                                                                        Oldest first
+                                                                    </option>
+                                                                </select>
+                                                            </label>
+                                                        </div>
+                                                    ) : null}
                                                     {commentTree.length ===
                                                     0 ? (
                                                         <p className='text-xs text-slate-500'>
@@ -1685,17 +1690,19 @@ export default function FreedomWallPage() {
                                                             </button>
                                                         </div>
                                                     ) : null}
-                                                    <button
-                                                        type='button'
-                                                        onClick={() =>
-                                                            void toggleComments(
-                                                                post.id,
-                                                            )
-                                                        }
-                                                        className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
-                                                    >
-                                                        Hide all comments
-                                                    </button>
+                                                    {showExpandedCommentControls ? (
+                                                        <button
+                                                            type='button'
+                                                            onClick={() =>
+                                                                void toggleComments(
+                                                                    post.id,
+                                                                )
+                                                            }
+                                                            className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                                        >
+                                                            Hide all comments
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                             ) : null}
                                         </CardBody>

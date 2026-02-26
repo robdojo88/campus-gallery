@@ -3,7 +3,10 @@
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { captureFrameAsDataUrl, getHighResolutionStream } from '@/lib/camera-capture';
+import {
+    captureFrameAsDataUrl,
+    getHighResolutionStream,
+} from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
 import {
     OFFLINE_QUEUE_CHANGED_EVENT,
@@ -27,6 +30,24 @@ function getFallbackVisibilityFromCachedRole(): Visibility {
         ?.trim()
         .toLowerCase();
     return cachedRole === 'visitor' ? 'visitor' : 'campus';
+}
+
+function CaptureIcon({ className = 'h-5 w-5' }: { className?: string }) {
+    return (
+        <svg
+            viewBox='0 0 24 24'
+            aria-hidden='true'
+            className={className}
+            fill='none'
+            stroke='currentColor'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+        >
+            <path d='M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z' />
+            <circle cx='12' cy='13' r='4' />
+        </svg>
+    );
 }
 
 export function SingleCameraCapture() {
@@ -84,7 +105,10 @@ export function SingleCameraCapture() {
         };
 
         void refreshPendingQueueCount();
-        window.addEventListener(OFFLINE_QUEUE_CHANGED_EVENT, handleQueueChanged);
+        window.addEventListener(
+            OFFLINE_QUEUE_CHANGED_EVENT,
+            handleQueueChanged,
+        );
         window.addEventListener('focus', handleQueueChanged);
 
         return () => {
@@ -102,7 +126,9 @@ export function SingleCameraCapture() {
         getCurrentUserProfile()
             .then((profile) => {
                 if (!mounted) return;
-                setVisibility(profile?.role === 'visitor' ? 'visitor' : 'campus');
+                setVisibility(
+                    profile?.role === 'visitor' ? 'visitor' : 'campus',
+                );
             })
             .catch(() => {
                 if (!mounted) return;
@@ -176,17 +202,27 @@ export function SingleCameraCapture() {
     }, []);
 
     const networkClass = useMemo(
-        () => (online ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'),
+        () =>
+            online
+                ? 'bg-emerald-100 text-emerald-800'
+                : 'bg-red-100 text-red-700',
         [online],
     );
-    const captureButtonLabel = isCapturing ? 'Capturing...' : captureNotice ? 'Captured!' : 'Capture';
+    const captureButtonLabel = isCapturing
+        ? 'Capturing...'
+        : captureNotice
+          ? 'Captured!'
+          : 'Capture';
 
     async function capture() {
         if (isCapturing || isSubmitting) return;
         if (!videoRef.current || !canvasRef.current) return;
         setIsCapturing(true);
         try {
-            const next = await captureFrameAsDataUrl(videoRef.current, canvasRef.current);
+            const next = await captureFrameAsDataUrl(
+                videoRef.current,
+                canvasRef.current,
+            );
             setCaptures((prev) => [...prev, next]);
             setActivePreviewIndex(captures.length);
             setStatus('');
@@ -208,7 +244,9 @@ export function SingleCameraCapture() {
 
     function removeCapture(index: number) {
         const nextLength = captures.length - 1;
-        setCaptures((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+        setCaptures((prev) =>
+            prev.filter((_, itemIndex) => itemIndex !== index),
+        );
         setActivePreviewIndex((current) => {
             if (nextLength <= 0) return 0;
             if (index < current) return current - 1;
@@ -283,7 +321,9 @@ export function SingleCameraCapture() {
                     visibility,
                 });
             }
-            setStatus(`Uploaded ${captures.length} capture${captures.length > 1 ? 's' : ''} as one post.`);
+            setStatus(
+                `Uploaded ${captures.length} capture${captures.length > 1 ? 's' : ''} as one post.`,
+            );
             setCaptures([]);
             setActivePreviewIndex(0);
             setCaption('');
@@ -300,44 +340,71 @@ export function SingleCameraCapture() {
         <section className='-mx-4 -mt-6 grid gap-6 lg:mx-0 lg:mt-0 lg:grid-cols-[1.2fr_0.8fr]'>
             <article className='overflow-hidden bg-white shadow-sm lg:rounded-3xl lg:border lg:border-slate-200'>
                 <div className='relative h-[100dvh] w-full bg-slate-900 lg:aspect-[4/3] lg:h-auto'>
-                    <video ref={videoRef} autoPlay playsInline muted className='h-full w-full object-cover' />
-                    <div className='absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-slate-900/90 via-slate-900/55 to-transparent p-4 lg:hidden'>
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}>
-                            {online ? 'Online' : 'Offline'}
-                        </span>
-                        <div className='flex items-center gap-2'>
-                            <p className='text-xs font-semibold text-white'>Captured: {captures.length}</p>
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className='h-full w-full object-cover'
+                    />
+                    <div className='absolute inset-x-0 bottom-0 lg:hidden'>
+                        <div className='pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-900/90 via-slate-900/45 to-transparent' />
+                        <div className='relative flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+5.9rem)]'>
                             <button
                                 type='button'
                                 onClick={() => void capture()}
                                 disabled={isSubmitting || isCapturing}
-                                className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
+                                aria-label={captureButtonLabel}
+                                className='group relative grid h-[4.6rem] w-[4.6rem] place-items-center rounded-full border-4 border-white/95 bg-white/15 shadow-[0_16px_30px_-18px_rgba(0,0,0,0.95)] backdrop-blur-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60'
                             >
-                                {captureButtonLabel}
+                                <span
+                                    className={`grid h-[3.35rem] w-[3.35rem] place-items-center rounded-full transition ${
+                                        captureNotice
+                                            ? 'bg-emerald-200 text-emerald-900'
+                                            : 'bg-white text-slate-900'
+                                    }`}
+                                >
+                                    <CaptureIcon className='h-6 w-6' />
+                                </span>
                             </button>
                         </div>
+                        <p className='absolute left-4 bottom-[calc(env(safe-area-inset-bottom)+1.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white'>
+                            Captured: {captures.length}
+                        </p>
+                        <span
+                            className={`absolute right-4 bottom-[calc(env(safe-area-inset-bottom)+1.35rem)] rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}
+                        >
+                            {online ? 'Online' : 'Offline'}
+                        </span>
                     </div>
                 </div>
                 <div className='hidden items-center justify-between gap-3 p-4 lg:flex'>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}>
-                        {online ? 'Online - instant upload' : 'Offline - queue enabled'}
+                    <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${networkClass}`}
+                    >
+                        {online
+                            ? 'Online - instant upload'
+                            : 'Offline - queue enabled'}
                     </span>
                     <div className='flex items-center gap-2'>
-                        <p className='text-xs font-semibold text-slate-200'>Captured: {captures.length}</p>
+                        <p className='text-xs font-semibold text-slate-200'>
+                            Captured: {captures.length}
+                        </p>
                         <button
                             type='button'
                             onClick={() => void capture()}
                             disabled={isSubmitting || isCapturing}
-                            className='rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
+                            className='inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                         >
-                            {captureButtonLabel}
+                            <CaptureIcon className='h-4 w-4' />
+                            <span>{captureButtonLabel}</span>
                         </button>
                     </div>
                 </div>
             </article>
 
-            <article className='space-y-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5'>
-                <h2 className='text-lg font-bold'>Preview and Submit Post</h2>
+            <article className='space-y-4 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm md:p-5'>
+                {/* <h2 className='text-lg font-bold'>Preview and Submit Post</h2> */}
                 {captures.length > 0 ? (
                     <Image
                         src={captures[activePreviewIndex]}
@@ -349,7 +416,7 @@ export function SingleCameraCapture() {
                     />
                 ) : (
                     <div className='rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500'>
-                        Capture from the live camera feed. You can add multiple images into one post.
+                        You can capture multiple images into one post.
                     </div>
                 )}
                 {captures.length > 1 ? (
@@ -361,10 +428,18 @@ export function SingleCameraCapture() {
                                     onClick={() => setActivePreviewIndex(index)}
                                     disabled={isSubmitting}
                                     className={`relative block aspect-square w-full overflow-hidden rounded-xl border ${
-                                        activePreviewIndex === index ? 'border-cyan-600' : 'border-slate-300'
+                                        activePreviewIndex === index
+                                            ? 'border-cyan-600'
+                                            : 'border-slate-300'
                                     }`}
                                 >
-                                    <Image src={image} alt={`Capture ${index + 1}`} fill unoptimized className='object-cover' />
+                                    <Image
+                                        src={image}
+                                        alt={`Capture ${index + 1}`}
+                                        fill
+                                        unoptimized
+                                        className='object-cover'
+                                    />
                                 </button>
                                 <button
                                     type='button'
@@ -386,14 +461,14 @@ export function SingleCameraCapture() {
                     className='min-h-24 w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600'
                 />
                 <div className='grid gap-3'>
-                    <div className='rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700'>
+                    {/* <div className='rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700'>
                         <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
                             Visibility
                         </p>
                         <p className='mt-1 font-semibold capitalize text-slate-900'>
                             {visibility}
                         </p>
-                    </div>
+                    </div> */}
                     <div className='rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700'>
                         <p className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
                             Current event tag
@@ -401,15 +476,17 @@ export function SingleCameraCapture() {
                         <p className='mt-1 font-semibold text-slate-900'>
                             {currentEventLoading
                                 ? 'Loading...'
-                                : currentEvent?.name ?? 'Not set by admin'}
+                                : (currentEvent?.name ?? 'Not set by admin')}
                         </p>
                     </div>
                 </div>
                 <p className='text-xs text-slate-500'>
-                    Event tags are managed by admin. Every feed post is auto-tagged with the current event.
+                    Event tags are managed by admin. Every feed post is
+                    auto-tagged with the current event.
                 </p>
                 <p className='text-xs text-slate-500'>
-                    Pending uploads: <span className='font-semibold'>{pendingQueueCount}</span>
+                    Pending uploads:{' '}
+                    <span className='font-semibold'>{pendingQueueCount}</span>
                 </p>
                 <button
                     type='button'
@@ -432,12 +509,17 @@ export function SingleCameraCapture() {
                         Clear Captures
                     </button>
                 ) : null}
-                {status ? <p className='text-sm text-slate-700'>{status}</p> : null}
+                {status ? (
+                    <p className='text-sm text-slate-700'>{status}</p>
+                ) : null}
                 {visibility === 'visitor' ? (
-                    <p className='text-xs text-slate-500'>Visitor accounts can only publish to visitor visibility.</p>
+                    <p className='text-xs text-slate-500'>
+                        Visitor accounts can only publish to visitor visibility.
+                    </p>
                 ) : null}
                 <p className='text-xs text-slate-500'>
-                    File upload from device is intentionally disabled. Only live camera capture is supported.
+                    File upload from device is intentionally disabled. Only live
+                    camera capture is supported.
                 </p>
             </article>
             <canvas ref={canvasRef} className='hidden' />

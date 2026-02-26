@@ -19,7 +19,7 @@ export function FeedLoader({
     const placeholders = Array.from({ length: count });
 
     return (
-        <div className='mx-auto w-full max-w-4xl space-y-4'>
+        <div className='mx-auto w-full max-w-4xl space-y-0 md:space-y-4'>
             {placeholders.map((_, index) => (
                 <motion.article
                     key={`feed-loader-${index}`}
@@ -28,7 +28,7 @@ export function FeedLoader({
                     transition={{ duration: 0.28, delay: index * 0.05 }}
                     className={compact ? 'opacity-90' : ''}
                 >
-                    <Card className='overflow-hidden border border-slate-200 bg-white shadow-sm'>
+                    <Card className='overflow-hidden border-y border-slate-200 bg-white shadow-none rounded-none md:rounded-2xl md:border md:shadow-sm'>
                         <CardBody className='p-4'>
                             <motion.div
                                 animate={{ opacity: [0.45, 0.9, 0.45] }}

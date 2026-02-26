@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Drawer, DrawerBody, DrawerContent, DrawerHeader } from '@heroui/react';
 import { createPortal } from 'react-dom';
 import {
     countUnreadNotifications,
@@ -67,6 +68,15 @@ const ADMIN_PANEL_LINK = {
     label: 'Admin Panel',
     icon: 'admin_panel',
 } satisfies NavLink;
+
+const COMPACT_PROFILE_LINK_HREFS = [
+    '/trending',
+    '/gallery/date',
+    '/gallery/events',
+    '/incognito',
+    '/visitor-gallery',
+    '/reviews',
+] as const;
 
 function NotificationBell({
     active,
@@ -285,12 +295,7 @@ function isLinkActive(pathname: string, href: string): boolean {
 }
 
 function isMobilePrimaryLink(href: string): boolean {
-    return (
-        href === '/feed' ||
-        href === '/camera' ||
-        href === '/gallery/date' ||
-        href === '/freedom-wall'
-    );
+    return href === '/feed' || href === '/camera' || href === '/freedom-wall';
 }
 
 function isDesktopPrimaryLink(href: string): boolean {
@@ -438,9 +443,10 @@ export function MainNav({
     const [searchStatus, setSearchStatus] = useState('');
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [menuOpenedFromDesktop, setMenuOpenedFromDesktop] = useState(false);
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
     const [isTabletViewport, setIsTabletViewport] = useState(false);
+    const [isCompactViewport, setIsCompactViewport] = useState(false);
     const mobileMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
-    const mobileMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
     const mobileMenuPanelRef = useRef<HTMLDivElement | null>(null);
     const profileMenuDesktopButtonRef = useRef<HTMLButtonElement | null>(null);
     const profileMenuMobileButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -675,7 +681,6 @@ export function MainNav({
         function onPointerDown(event: PointerEvent) {
             const target = event.target as Node;
             if (mobileMenuDesktopButtonRef.current?.contains(target)) return;
-            if (mobileMenuMobileButtonRef.current?.contains(target)) return;
             if (mobileMenuPanelRef.current?.contains(target)) return;
             setMobileMenuOpen(false);
         }
@@ -787,17 +792,6 @@ export function MainNav({
         () => desktopLinks.filter((link) => !isMobilePrimaryLink(link.href)),
         [desktopLinks],
     );
-    const mobileOverflowLinks = useMemo(
-        () => centerLinks.filter((link) => !isMobilePrimaryLink(link.href)),
-        [centerLinks],
-    );
-    const mobileOverflowActive = useMemo(
-        () =>
-            mobileOverflowLinks.some((link) =>
-                isLinkActive(pathname, link.href),
-            ),
-        [mobileOverflowLinks, pathname],
-    );
     const desktopOverflowActive = useMemo(
         () =>
             desktopOverflowLinks.some((link) =>
@@ -807,11 +801,36 @@ export function MainNav({
     );
     const adminQuickLinks = useMemo(
         () =>
-            role === 'admin' && !navigationDisabled ? [ADMIN_PANEL_LINK] : [],
-        [navigationDisabled, role],
+            role === 'admin' && !navigationDisabled && !isCompactViewport
+                ? [ADMIN_PANEL_LINK]
+                : [],
+        [isCompactViewport, navigationDisabled, role],
     );
+    const compactProfileLinks = useMemo(() => {
+        if (navigationDisabled || !isCompactViewport) {
+            return [];
+        }
+
+        const linksByHref = new Map(
+            centerLinks.map((link) => [link.href, link]),
+        );
+        const orderedLinks: NavLink[] = [];
+        if (role === 'admin') {
+            orderedLinks.push(ADMIN_PANEL_LINK);
+        }
+        for (const href of COMPACT_PROFILE_LINK_HREFS) {
+            const link = linksByHref.get(href);
+            if (link) {
+                orderedLinks.push(link);
+            }
+        }
+        return orderedLinks;
+    }, [centerLinks, isCompactViewport, navigationDisabled, role]);
     const notificationsEnabled =
         !navigationDisabled && (role === 'admin' || role === 'member');
+    const profileSurfaceOpen = isCompactViewport
+        ? profileDrawerOpen
+        : profileMenuOpen;
     const isDarkTheme = hasHydrated && themeMode === 'dark';
     const spiralLogoSrc = isDarkTheme ? '/spiral_light.png' : '/spiral.png';
 
@@ -824,6 +843,7 @@ export function MainNav({
         const updateViewportMode = () => {
             const width = window.innerWidth;
             setIsTabletViewport(width >= 768 && width < 1024);
+            setIsCompactViewport(width < 1024);
         };
         updateViewportMode();
         window.addEventListener('resize', updateViewportMode);
@@ -832,10 +852,36 @@ export function MainNav({
         };
     }, []);
 
+    useEffect(() => {
+        if (isCompactViewport) {
+            setProfileMenuOpen(false);
+            setMobileMenuOpen(false);
+            setMenuOpenedFromDesktop(false);
+            return;
+        }
+        setProfileDrawerOpen(false);
+    }, [isCompactViewport]);
+
+    useEffect(() => {
+        if (!userId || navigationDisabled) {
+            setProfileDrawerOpen(false);
+        }
+    }, [navigationDisabled, userId]);
+
+    function onProfileTrigger() {
+        if (isCompactViewport) {
+            setProfileMenuOpen(false);
+            setProfileDrawerOpen(true);
+            return;
+        }
+        setProfileMenuOpen((current) => !current);
+    }
+
     async function onLogout() {
         await signOutUser();
         clearAuthSnapshot();
         setProfileMenuOpen(false);
+        setProfileDrawerOpen(false);
         setUnreadCount(0);
         setUserId(null);
         setRole(null);
@@ -1183,14 +1229,10 @@ export function MainNav({
                                 <button
                                     ref={profileMenuDesktopButtonRef}
                                     type='button'
-                                    onClick={() =>
-                                        setProfileMenuOpen(
-                                            (current) => !current,
-                                        )
-                                    }
+                                    onClick={onProfileTrigger}
                                     className='relative h-10 w-10 rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
                                     aria-label='Open profile menu'
-                                    aria-expanded={profileMenuOpen}
+                                    aria-expanded={profileSurfaceOpen}
                                 >
                                     <span className='absolute inset-0 overflow-hidden rounded-full'>
                                         <Image
@@ -1230,7 +1272,7 @@ export function MainNav({
             </div>
             <nav className='mx-auto hidden w-full max-w-[1480px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-2 md:grid lg:px-8'>
                 <div className='flex items-center gap-2 justify-self-start rounded-2xl border border-slate-200/90 bg-white/80 px-2 py-1 shadow-sm backdrop-blur'>
-                    {desktopOverflowLinks.length > 0 ? (
+                    {!isCompactViewport && desktopOverflowLinks.length > 0 ? (
                         <button
                             ref={mobileMenuDesktopButtonRef}
                             type='button'
@@ -1361,24 +1403,38 @@ export function MainNav({
                                     </span>
                                 </Link>
                             ) : null}
-                            <button
-                                ref={profileMenuDesktopButtonRef}
-                                type='button'
-                                onClick={() =>
-                                    setProfileMenuOpen((current) => !current)
-                                }
-                                className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
-                                aria-label='Open profile menu'
-                                aria-expanded={profileMenuOpen}
-                            >
-                                <Image
-                                    src={userAvatarUrl}
-                                    alt={`${userDisplayName} profile`}
-                                    fill
-                                    className='object-cover'
-                                    sizes='40px'
-                                />
-                            </button>
+                            <div className='relative shrink-0'>
+                                <button
+                                    ref={profileMenuDesktopButtonRef}
+                                    type='button'
+                                    onClick={onProfileTrigger}
+                                    className='relative h-10 w-10 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
+                                    aria-label='Open profile menu'
+                                    aria-expanded={profileSurfaceOpen}
+                                >
+                                    <Image
+                                        src={userAvatarUrl}
+                                        alt={`${userDisplayName} profile`}
+                                        fill
+                                        className='object-cover'
+                                        sizes='40px'
+                                    />
+                                </button>
+                                <span className='pointer-events-none absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-slate-800 text-white ring-2 ring-white'>
+                                    <svg
+                                        viewBox='0 0 24 24'
+                                        aria-hidden='true'
+                                        className='h-2.5 w-2.5'
+                                        fill='none'
+                                        stroke='currentColor'
+                                        strokeWidth='2.5'
+                                        strokeLinecap='round'
+                                        strokeLinejoin='round'
+                                    >
+                                        <path d='m6 9 6 6 6-6' />
+                                    </svg>
+                                </span>
+                            </div>
                         </>
                     ) : (
                         <Link
@@ -1391,41 +1447,53 @@ export function MainNav({
                 </div>
             </nav>
 
-            <nav className='mx-auto flex w-full max-w-[1480px] items-center justify-between gap-1 overflow-hidden px-2 py-2 md:hidden'>
-                {mobileOverflowLinks.length > 0 ? (
-                    <button
-                        ref={mobileMenuMobileButtonRef}
-                        type='button'
-                        onClick={() => setMobileMenuOpen((current) => !current)}
-                        aria-label='Open navigation'
-                        aria-expanded={mobileMenuOpen}
-                        className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
-                            mobileMenuOpen || mobileOverflowActive
-                                ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
-                                : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
-                        }`}
-                    >
-                        <svg
-                            viewBox='0 0 24 24'
-                            aria-hidden='true'
-                            className={`h-5 w-5 ${
-                                mobileMenuOpen || mobileOverflowActive
-                                    ? 'text-blue-600'
-                                    : 'text-slate-600'
-                            }`}
-                            fill='none'
-                            stroke='currentColor'
-                            strokeWidth='2'
-                            strokeLinecap='round'
-                            strokeLinejoin='round'
+            <nav className='mx-auto flex w-full max-w-370 items-center justify-between gap-1 overflow-hidden px-7 py-2 md:hidden'>
+                {!authResolved ? (
+                    <span
+                        className='h-9 w-9 shrink-0 rounded-full bg-slate-100 ring-2 ring-slate-200'
+                        aria-hidden='true'
+                    />
+                ) : userId ? (
+                    <div className='relative shrink-0'>
+                        <button
+                            ref={profileMenuMobileButtonRef}
+                            type='button'
+                            onClick={onProfileTrigger}
+                            className='relative h-9 w-9 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
+                            aria-label='Open profile menu'
+                            aria-expanded={profileSurfaceOpen}
                         >
-                            <path d='M4 7h16M4 12h16M4 17h16' />
-                        </svg>
-                        <span className='pointer-events-none absolute -bottom-9 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100'>
-                            Menu
+                            <Image
+                                src={userAvatarUrl}
+                                alt={`${userDisplayName} profile`}
+                                fill
+                                className='object-cover'
+                                sizes='36px'
+                            />
+                        </button>
+                        <span className='pointer-events-none absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-slate-800 text-white ring-2 ring-white'>
+                            <svg
+                                viewBox='0 0 24 24'
+                                aria-hidden='true'
+                                className='h-2.5 w-2.5'
+                                fill='none'
+                                stroke='currentColor'
+                                strokeWidth='2.5'
+                                strokeLinecap='round'
+                                strokeLinejoin='round'
+                            >
+                                <path d='m6 9 6 6 6-6' />
+                            </svg>
                         </span>
-                    </button>
-                ) : null}
+                    </div>
+                ) : (
+                    <Link
+                        href='/login'
+                        className='shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100'
+                    >
+                        Login
+                    </Link>
+                )}
                 {navigationDisabled ? (
                     <span className='group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-slate-600'>
                         <span className='relative h-7 w-7 overflow-hidden rounded-full'>
@@ -1470,77 +1538,29 @@ export function MainNav({
                         />
                     );
                 })}
-                {adminQuickLinks.map((link) => {
-                    const active = isLinkActive(pathname, link.href);
-                    return (
-                        <NavIconLink
-                            key={`mobile-admin-${link.href}`}
-                            link={link}
-                            active={active}
-                            compact
-                        />
-                    );
-                })}
-                {!authResolved ? (
-                    <span
-                        className='h-9 w-9 shrink-0 rounded-full bg-slate-100 ring-2 ring-slate-200'
-                        aria-hidden='true'
-                    />
-                ) : userId ? (
-                    <>
-                        {notificationsEnabled ? (
-                            <Link
-                                href='/notifications'
-                                aria-label='Notifications'
-                                title='Notifications'
-                                className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
-                                    pathname.startsWith('/notifications')
-                                        ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
-                                        : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
-                                }`}
-                            >
-                                <NotificationBell
-                                    active={pathname.startsWith(
-                                        '/notifications',
-                                    )}
-                                    unreadCount={unreadCount}
-                                />
-                            </Link>
-                        ) : null}
-                        <button
-                            ref={profileMenuMobileButtonRef}
-                            type='button'
-                            onClick={() =>
-                                setProfileMenuOpen((current) => !current)
-                            }
-                            className='relative h-9 w-9 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 transition duration-200 hover:ring-blue-200 focus:outline-none focus-visible:ring-blue-300'
-                            aria-label='Open profile menu'
-                            aria-expanded={profileMenuOpen}
-                        >
-                            <Image
-                                src={userAvatarUrl}
-                                alt={`${userDisplayName} profile`}
-                                fill
-                                className='object-cover'
-                                sizes='36px'
-                            />
-                        </button>
-                    </>
-                ) : (
+                {authResolved && userId && notificationsEnabled ? (
                     <Link
-                        href='/login'
-                        className='shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100'
+                        href='/notifications'
+                        aria-label='Notifications'
+                        title='Notifications'
+                        className={`group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent transition-all duration-200 ${
+                            pathname.startsWith('/notifications')
+                                ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100'
+                                : 'text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900'
+                        }`}
                     >
-                        Login
+                        <NotificationBell
+                            active={pathname.startsWith('/notifications')}
+                            unreadCount={unreadCount}
+                        />
                     </Link>
-                )}
+                ) : null}
             </nav>
             <AnimatePresence>
                 {!navigationDisabled &&
                 mobileMenuOpen &&
-                (menuOpenedFromDesktop
-                    ? desktopOverflowLinks.length > 0
-                    : mobileOverflowLinks.length > 0) ? (
+                menuOpenedFromDesktop &&
+                desktopOverflowLinks.length > 0 ? (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -1580,7 +1600,10 @@ export function MainNav({
                                 </p>
                                 <button
                                     type='button'
-                                    onClick={() => setMobileMenuOpen(false)}
+                                    onClick={() => {
+                                        setMobileMenuOpen(false);
+                                        setMenuOpenedFromDesktop(false);
+                                    }}
                                     aria-label='Close menu'
                                     className='rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100'
                                 >
@@ -1588,10 +1611,7 @@ export function MainNav({
                                 </button>
                             </div>
                             <nav className='space-y-1 p-3'>
-                                {(menuOpenedFromDesktop
-                                    ? desktopOverflowLinks
-                                    : mobileOverflowLinks
-                                ).map((link) => {
+                                {desktopOverflowLinks.map((link) => {
                                     const active = isLinkActive(
                                         pathname,
                                         link.href,
@@ -1623,7 +1643,10 @@ export function MainNav({
                     </motion.div>
                 ) : null}
             </AnimatePresence>
-            {profileMenuOpen && userId && typeof document !== 'undefined'
+            {!isCompactViewport &&
+            profileMenuOpen &&
+            userId &&
+            typeof document !== 'undefined'
                 ? createPortal(
                       <div
                           ref={profileMenuPanelRef}
@@ -1640,6 +1663,10 @@ export function MainNav({
                           >
                               See Profile
                           </Link>
+                          <div
+                              aria-hidden='true'
+                              className='my-1 h-px bg-slate-200'
+                          />
                           <button
                               type='button'
                               onClick={() => {
@@ -1661,6 +1688,106 @@ export function MainNav({
                       document.body,
                   )
                 : null}
+            {isCompactViewport && userId ? (
+                <Drawer
+                    isOpen={profileDrawerOpen}
+                    onOpenChange={setProfileDrawerOpen}
+                    placement='left'
+                    backdrop='blur'
+                    size='xs'
+                    classNames={{
+                        wrapper: '!items-start !justify-start !h-[100dvh]',
+                        base: '!m-0 !h-[100dvh] !max-h-[100dvh] !top-0',
+                    }}
+                >
+                    <DrawerContent className='bg-white'>
+                        {(onClose) => (
+                            <>
+                                <DrawerHeader className='border-b border-slate-200 px-4 py-4'>
+                                    <div className='flex items-center gap-3'>
+                                        <span className='relative h-10 w-10 overflow-hidden rounded-full ring-2 ring-slate-200'>
+                                            <Image
+                                                src={userAvatarUrl}
+                                                alt={`${userDisplayName} profile`}
+                                                fill
+                                                className='object-cover'
+                                                sizes='40px'
+                                            />
+                                        </span>
+                                        <div className='min-w-0'>
+                                            <p className='truncate text-sm font-semibold text-slate-900'>
+                                                {userDisplayName}
+                                            </p>
+                                            <p className='truncate text-xs text-slate-500'>
+                                                Quick links
+                                            </p>
+                                        </div>
+                                    </div>
+                                </DrawerHeader>
+                                <DrawerBody className='px-3 py-3'>
+                                    <Link
+                                        href={`/profile/${userId}`}
+                                        onClick={() => onClose()}
+                                        className='flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100'
+                                    >
+                                        See Profile
+                                    </Link>
+                                    {compactProfileLinks.map((link) => {
+                                        const active = isLinkActive(
+                                            pathname,
+                                            link.href,
+                                        );
+                                        return (
+                                            <Link
+                                                key={`profile-drawer-${link.href}`}
+                                                href={link.href}
+                                                onClick={() => onClose()}
+                                                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                                                    active
+                                                        ? 'bg-blue-50 text-blue-700'
+                                                        : 'text-slate-700 hover:bg-slate-100'
+                                                }`}
+                                            >
+                                                <Icon
+                                                    name={link.icon}
+                                                    active={active}
+                                                />
+                                                <span>{link.label}</span>
+                                            </Link>
+                                        );
+                                    })}
+                                    <div
+                                        aria-hidden='true'
+                                        className='my-1 h-px bg-slate-200'
+                                    />
+                                    <button
+                                        type='button'
+                                        onClick={() => {
+                                            onToggleTheme();
+                                            onClose();
+                                        }}
+                                        className='w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100'
+                                    >
+                                        {isDarkTheme
+                                            ? 'Light mode'
+                                            : 'Dark mode'}
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => {
+                                            onClose();
+                                            void onLogout();
+                                        }}
+                                        className='w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-rose-600 transition hover:bg-rose-50'
+                                    >
+                                        Logout
+                                    </button>
+                                </DrawerBody>
+                            </>
+                        )}
+                    </DrawerContent>
+                </Drawer>
+            ) : null}
         </header>
     );
 }

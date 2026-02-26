@@ -1,7 +1,6 @@
 'use client';
 
-const MAX_CAPTURE_DIMENSION = 1920;
-const CAPTURE_JPEG_QUALITY = 0.88;
+const CAPTURE_JPEG_QUALITY = 1;
 
 export async function getHighResolutionStream(): Promise<MediaStream> {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -43,13 +42,8 @@ export async function captureFrameAsDataUrl(
 
     const sourceWidth = videoElement.videoWidth;
     const sourceHeight = videoElement.videoHeight;
-    const scale = Math.min(
-        1,
-        MAX_CAPTURE_DIMENSION / sourceWidth,
-        MAX_CAPTURE_DIMENSION / sourceHeight,
-    );
-    const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
-    const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+    const targetWidth = sourceWidth;
+    const targetHeight = sourceHeight;
 
     canvasElement.width = targetWidth;
     canvasElement.height = targetHeight;

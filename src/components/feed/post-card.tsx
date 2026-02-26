@@ -1290,10 +1290,12 @@ export function PostCard({
             ? 'This action permanently removes the post and all related comments.'
             : 'This action permanently removes this comment.';
     const showFooterSection = showEngagement || Boolean(status);
+    const showExpandedCommentControls =
+        commentsHasMore || comments.length > COMMENTS_INITIAL_LIMIT;
 
     return (
         <Card
-            className={`flex flex-col overflow-hidden border border-slate-200 bg-white shadow-sm rounded-2xl ${
+            className={`flex flex-col overflow-hidden border-y border-slate-200 bg-white shadow-none rounded-none md:rounded-2xl md:border md:shadow-sm ${
                 showEngagement ? 'min-h-[90svh] md:min-h-[90vh]' : ''
             }`}
         >
@@ -1472,28 +1474,30 @@ export function PostCard({
                                         ref={commentsContainerRef}
                                         className='space-y-2 rounded-2xl bg-slate-50 p-3'
                                     >
-                                        <div className='flex flex-wrap items-center justify-end gap-2'>
-                                            <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
-                                                <span>Sort</span>
-                                                <select
-                                                    value={commentSortOrder}
-                                                    onChange={(event) =>
-                                                        setCommentSortOrder(
-                                                            event.target
-                                                                .value as CommentSortOrder,
-                                                        )
-                                                    }
-                                                    className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
-                                                >
-                                                    <option value='recent'>
-                                                        Recently added
-                                                    </option>
-                                                    <option value='oldest'>
-                                                        Oldest first
-                                                    </option>
-                                                </select>
-                                            </label>
-                                        </div>
+                                        {showExpandedCommentControls ? (
+                                            <div className='flex flex-wrap items-center justify-start gap-2'>
+                                                <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
+                                                    {/* <span>Sort</span> */}
+                                                    <select
+                                                        value={commentSortOrder}
+                                                        onChange={(event) =>
+                                                            setCommentSortOrder(
+                                                                event.target
+                                                                    .value as CommentSortOrder,
+                                                            )
+                                                        }
+                                                        className='rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-cyan-600'
+                                                    >
+                                                        <option value='recent'>
+                                                            Newest
+                                                        </option>
+                                                        <option value='oldest'>
+                                                            All comments
+                                                        </option>
+                                                    </select>
+                                                </label>
+                                            </div>
+                                        ) : null}
                                         {commentsLoading ? (
                                             <div className='space-y-2'>
                                                 <div className='h-9 w-full animate-pulse rounded-xl bg-slate-200' />
@@ -1537,22 +1541,24 @@ export function PostCard({
                                                 Show more comments
                                             </button>
                                         ) : null}
-                                        <button
-                                            type='button'
-                                            onClick={() => {
-                                                setShowComments(false);
-                                                setReplyTarget(null);
-                                                setCommentsAutoLoad(false);
-                                                if (targetCommentId) {
-                                                    setIgnoreTargetCommentAutoOpen(
-                                                        true,
-                                                    );
-                                                }
-                                            }}
-                                            className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
-                                        >
-                                            Hide all comments
-                                        </button>
+                                        {showExpandedCommentControls ? (
+                                            <button
+                                                type='button'
+                                                onClick={() => {
+                                                    setShowComments(false);
+                                                    setReplyTarget(null);
+                                                    setCommentsAutoLoad(false);
+                                                    if (targetCommentId) {
+                                                        setIgnoreTargetCommentAutoOpen(
+                                                            true,
+                                                        );
+                                                    }
+                                                }}
+                                                className='mx-auto block rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100'
+                                            >
+                                                Hide all comments
+                                            </button>
+                                        ) : null}
                                     </div>
                                 ) : null}
                             </>

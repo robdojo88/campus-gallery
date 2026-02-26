@@ -232,8 +232,7 @@ function LeftSidebar({ role }: { role: UserRole | null }) {
                 setHashtags(nextHashtags);
                 setFreedomItems(nextFreedomItems);
                 setStatus(
-                    nextHashtags.length === 0 &&
-                        nextFreedomItems.length === 0
+                    nextHashtags.length === 0 && nextFreedomItems.length === 0
                         ? 'No trends yet.'
                         : '',
                 );
@@ -737,7 +736,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <div className='min-h-screen'>
             <OfflineSync />
             <MainNav disableNavigation={isSuspended} />
-            <div className='mx-auto w-full max-w-370 px-3 pb-10 pt-5 md:px-2 md:pt-5 lg:px-0'>
+            <div className='mx-auto w-full max-w-370  pb-10 pt-5 md:px-2 md:pt-5 lg:px-0'>
                 <div className={`grid ${gridLayoutClass}`}>
                     {showLeftSidebar ? <LeftSidebar role={role} /> : null}
                     <main className='min-w-0'>{children}</main>
