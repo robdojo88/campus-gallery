@@ -25,6 +25,7 @@ import {
     togglePostLike,
 } from '@/lib/supabase';
 import { formatCommentTime } from '@/lib/comment-time';
+import { parseTimestamp } from '@/lib/timestamp';
 import type { Post, PostComment } from '@/lib/types';
 
 const FALLBACK_AVATAR_URL = '/avatar-default.svg';
@@ -44,7 +45,7 @@ type DeleteTarget = { kind: 'post' } | { kind: 'comment'; commentId: string };
 type CommentNode = PostComment & { replies: CommentNode[] };
 
 function safeTimeValue(timestamp: string): number {
-    const value = new Date(timestamp).getTime();
+    const value = parseTimestamp(timestamp).getTime();
     return Number.isNaN(value) ? 0 : value;
 }
 
@@ -78,13 +79,19 @@ function buildCommentTree(
 }
 
 function formatFeedTimestamp(createdAt: string): string {
-    const date = new Date(createdAt);
+    const date = parseTimestamp(createdAt);
     if (Number.isNaN(date.getTime())) return '';
 
     const now = new Date();
     const diffMs = Math.max(0, now.getTime() - date.getTime());
+    const minuteMs = 60 * 1000;
     const hourMs = 60 * 60 * 1000;
     const dayMs = 24 * hourMs;
+
+    if (diffMs < hourMs) {
+        const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
+        return `${minutes}m`;
+    }
 
     if (diffMs < dayMs) {
         const hours = Math.max(1, Math.floor(diffMs / hourMs));
@@ -92,7 +99,7 @@ function formatFeedTimestamp(createdAt: string): string {
     }
 
     const days = Math.floor(diffMs / dayMs);
-    if (days <= 7) {
+    if (days < 7) {
         return `${days}d`;
     }
 
@@ -480,6 +487,7 @@ export function PostCard({
 }) {
     const author = post.author;
     const avatarUrl = author?.avatarUrl ?? FALLBACK_AVATAR_URL;
+    const [, setTimeTick] = useState(0);
     const postedAt = formatFeedTimestamp(post.createdAt);
     const postMeta = post.eventName
         ? `${postedAt} - ${post.eventName}`
@@ -525,6 +533,15 @@ export function PostCard({
         () => (post.images.length > 0 ? post.images : [post.imageUrl]),
         [post.imageUrl, post.images],
     );
+
+    useEffect(() => {
+        const intervalId = window.setInterval(() => {
+            setTimeTick((current) => current + 1);
+        }, 60_000);
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, []);
 
     const refreshEngagement = useCallback(async () => {
         const engagement = await fetchPostEngagement(post.id);

@@ -16,7 +16,7 @@ export function PageHeader({
     action,
 }: PageHeaderProps) {
     return (
-        <Card className='relative mb-5 overflow-hidden rounded-[30px] border border-white/75 bg-gradient-to-br from-white/92 via-white/84 to-slate-100/74 shadow-[0_30px_75px_-45px_rgba(15,23,42,0.62)] backdrop-blur-xl md:mb-6'>
+        <Card className='relative mb-0.5 overflow-hidden  md:rounded-[30px] border border-white/75 bg-gradient-to-br from-white/92 via-white/84 to-slate-100/74 shadow-[0_30px_75px_-45px_rgba(15,23,42,0.62)] backdrop-blur-xl md:mb-6'>
             <div className='pointer-events-none absolute -left-10 -top-10 h-24 w-24 rounded-full bg-sky-200/35 blur-2xl' />
             <div className='pointer-events-none absolute -bottom-12 right-0 h-24 w-24 rounded-full bg-slate-300/25 blur-2xl' />
             <CardBody className='px-5 py-5 md:px-7 md:py-6'>

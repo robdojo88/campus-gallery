@@ -1,7 +1,11 @@
 'use client';
 
-import { createBrowserClient } from '@supabase/ssr';
-import type { RealtimeChannel, SupabaseClient, User } from '@supabase/supabase-js';
+import {
+    createClient,
+    type RealtimeChannel,
+    type SupabaseClient,
+    type User,
+} from '@supabase/supabase-js';
 import type {
     AppNotification,
     ContentReport,
@@ -25,6 +29,7 @@ import type {
     UserRole,
     Visibility,
 } from '@/lib/types';
+import { parseTimestamp } from '@/lib/timestamp';
 
 type DbUser = {
     id: string;
@@ -224,6 +229,8 @@ const PENDING_LOGIN_USN_KEY = 'ripple_pending_login_usn';
 const PENDING_AUTH_NOTICE_KEY = 'ripple_pending_auth_notice';
 const HASHTAG_PATTERN = /(^|\s)#([A-Za-z0-9_]{2,32})/g;
 const FREEDOM_POST_IMAGE_LIMIT = 4;
+export const DATE_FOLDER_TIME_ZONE = 'Asia/Manila';
+const AUTH_STORAGE_KEY = 'katol_gallery_auth';
 
 let browserClient: SupabaseClient | null = null;
 let sessionRecoveryPromise: Promise<void> | null = null;
@@ -237,7 +244,34 @@ function getSupabase(): SupabaseClient {
     }
 
     if (!browserClient) {
-        browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey);
+        const authOptions: {
+            persistSession: boolean;
+            autoRefreshToken: boolean;
+            detectSessionInUrl: boolean;
+            storageKey: string;
+            storage?: Storage;
+        } = {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+            storageKey: AUTH_STORAGE_KEY,
+        };
+
+        if (typeof window !== 'undefined') {
+            try {
+                // Ensure storage is writable before using it for auth persistence.
+                const probeKey = '__katol_auth_probe__';
+                window.localStorage.setItem(probeKey, '1');
+                window.localStorage.removeItem(probeKey);
+                authOptions.storage = window.localStorage;
+            } catch {
+                // Fall back to Supabase default storage behavior if localStorage is unavailable.
+            }
+        }
+
+        browserClient = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: authOptions,
+        });
     }
 
     return browserClient;
@@ -582,22 +616,64 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
     });
 }
 
-function getUtcDateKey(createdAt: string): string {
+function normalizeCreatedAtValue(value: string): string {
+    const parsed = parseTimestamp(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toISOString();
+}
+
+function getDateKeyPartsInTimeZone(
+    date: Date,
+    timeZone: string,
+): { year: string; month: string; day: string } | null {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (!year || !month || !day) return null;
+    return { year, month, day };
+}
+
+function getDateFolderKey(createdAt: string): string {
     const date = new Date(createdAt);
     if (Number.isNaN(date.getTime())) return '';
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
+    const parts = getDateKeyPartsInTimeZone(date, DATE_FOLDER_TIME_ZONE);
+    if (!parts) return '';
+    const { year, month, day } = parts;
     return `${year}-${month}-${day}`;
 }
 
 function formatDateLabelFromKey(dateKey: string): string {
-    const date = new Date(`${dateKey}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime())) return dateKey;
+    const [yearRaw, monthRaw, dayRaw] = dateKey.split('-');
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+        return dateKey;
+    }
+
+    const strictDate = new Date(Date.UTC(year, month - 1, day));
+    if (
+        Number.isNaN(strictDate.getTime()) ||
+        strictDate.getUTCFullYear() !== year ||
+        strictDate.getUTCMonth() !== month - 1 ||
+        strictDate.getUTCDate() !== day
+    ) {
+        return dateKey;
+    }
+
+    // Noon UTC avoids edge cases around DST boundaries.
+    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
     return date.toLocaleDateString(undefined, {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
+        timeZone: DATE_FOLDER_TIME_ZONE,
     });
 }
 
@@ -913,7 +989,7 @@ function mapPosts(
             eventName: post.event_id ? eventNamesById.get(post.event_id) : undefined,
             likes: likeCounts[post.id] ?? 0,
             comments: commentCounts[post.id] ?? 0,
-            createdAt: post.created_at,
+            createdAt: normalizeCreatedAtValue(post.created_at),
             author: author ? mapUser(author) : undefined,
         };
     });
@@ -2255,7 +2331,7 @@ export async function fetchDateFolderCounts(): Promise<
 > {
     const posts = await fetchPosts({ visibility: 'campus' });
     const grouped = posts.reduce<Record<string, { count: number; eventCounts: Record<string, number> }>>((acc, post) => {
-        const dateKey = getUtcDateKey(post.createdAt);
+        const dateKey = getDateFolderKey(post.createdAt);
         if (!dateKey) return acc;
 
         if (!acc[dateKey]) {
@@ -2292,7 +2368,7 @@ export async function fetchDateFolderPosts(dateKey: string): Promise<Post[]> {
 
     const posts = await fetchPosts({ visibility: 'campus' });
     return posts
-        .filter((post) => getUtcDateKey(post.createdAt) === dateKey)
+        .filter((post) => getDateFolderKey(post.createdAt) === dateKey)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
@@ -4133,7 +4209,7 @@ export async function searchGlobalContent(
                 if (error) throw error;
 
                 const buckets = (rows ?? []).reduce<Record<string, number>>((acc, row) => {
-                    const key = getUtcDateKey(row.created_at);
+                    const key = getDateFolderKey(row.created_at);
                     if (!key) return acc;
                     acc[key] = (acc[key] ?? 0) + 1;
                     return acc;

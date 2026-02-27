@@ -11,6 +11,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PageHeader } from '@/components/ui/page-header';
 import {
+    DATE_FOLDER_TIME_ZONE,
     fetchDateFolderPosts,
     getCurrentUserProfile,
     logAdminAuditAction,
@@ -26,12 +27,35 @@ type DateFolderImage = {
 };
 
 function formatDateLabel(dateKey: string): string {
-    const date = new Date(`${dateKey}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime())) return dateKey;
+    const [yearRaw, monthRaw, dayRaw] = dateKey.split('-');
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+        return dateKey;
+    }
+
+    const strictDate = new Date(Date.UTC(year, month - 1, day));
+    if (
+        Number.isNaN(strictDate.getTime()) ||
+        strictDate.getUTCFullYear() !== year ||
+        strictDate.getUTCMonth() !== month - 1 ||
+        strictDate.getUTCDate() !== day
+    ) {
+        return dateKey;
+    }
+
+    // Noon UTC avoids edge cases around DST boundaries.
+    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+    if (Number.isNaN(date.getTime())) {
+        return dateKey;
+    }
+
     return date.toLocaleDateString(undefined, {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
+        timeZone: DATE_FOLDER_TIME_ZONE,
     });
 }
 
@@ -110,7 +134,9 @@ export default function DateFolderDetailPage() {
                     const authorName = post.author?.name ?? 'Unknown';
                     const capturedAt = new Date(
                         post.createdAt,
-                    ).toLocaleString();
+                    ).toLocaleString(undefined, {
+                        timeZone: DATE_FOLDER_TIME_ZONE,
+                    });
                     const postImages =
                         post.images.length > 0 ? post.images : [post.imageUrl];
 

@@ -2,16 +2,19 @@
 
 const CAPTURE_JPEG_QUALITY = 1;
 
-export async function getHighResolutionStream(): Promise<MediaStream> {
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 4096 },
-            height: { ideal: 2160 },
-        },
-        audio: false,
-    });
+export type CameraFacingMode = 'environment' | 'user';
 
+function getVideoConstraints(
+    facingMode?: ConstrainDOMString,
+): MediaTrackConstraints {
+    return {
+        ...(facingMode ? { facingMode } : {}),
+        width: { ideal: 4096 },
+        height: { ideal: 2160 },
+    };
+}
+
+async function applyBestResolution(stream: MediaStream): Promise<void> {
     const track = stream.getVideoTracks()[0];
     if (track && typeof track.getCapabilities === 'function') {
         try {
@@ -28,8 +31,36 @@ export async function getHighResolutionStream(): Promise<MediaStream> {
             // Best-effort only. If constraints fail, keep current stream settings.
         }
     }
+}
 
-    return stream;
+export async function getHighResolutionStream(
+    preferredFacingMode: CameraFacingMode = 'environment',
+): Promise<MediaStream> {
+    const facingModeAttempts: Array<ConstrainDOMString | undefined> = [
+        { exact: preferredFacingMode },
+        { ideal: preferredFacingMode },
+        undefined,
+    ];
+    let lastError: unknown = null;
+
+    for (const facingMode of facingModeAttempts) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: getVideoConstraints(facingMode),
+                audio: false,
+            });
+            await applyBestResolution(stream);
+            return stream;
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw (
+        lastError instanceof Error
+            ? lastError
+            : new Error('Unable to initialize camera stream.')
+    );
 }
 
 export async function captureFrameAsDataUrl(

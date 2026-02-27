@@ -1,5 +1,7 @@
+import { parseTimestamp } from '@/lib/timestamp';
+
 export function formatCommentTime(createdAt: string): string {
-    const date = new Date(createdAt);
+    const date = parseTimestamp(createdAt);
     const timestamp = date.getTime();
     if (Number.isNaN(timestamp)) return '';
 

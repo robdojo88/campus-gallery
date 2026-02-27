@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
     captureFrameAsDataUrl,
     getHighResolutionStream,
+    type CameraFacingMode,
 } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
 import {
@@ -68,6 +69,9 @@ export function MultiCameraCapture() {
     const [captureNotice, setCaptureNotice] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [pendingQueueCount, setPendingQueueCount] = useState(0);
+    const [cameraFacingMode, setCameraFacingMode] =
+        useState<CameraFacingMode>('environment');
+    const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
 
     useEffect(() => {
         let mounted = true;
@@ -161,17 +165,31 @@ export function MultiCameraCapture() {
 
     useEffect(() => {
         let stream: MediaStream | null = null;
+        let active = true;
         async function bootCamera() {
+            setIsSwitchingCamera(true);
             try {
-                stream = await getHighResolutionStream();
+                stream = await getHighResolutionStream(cameraFacingMode);
+                if (!active) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
                 if (videoRef.current) videoRef.current.srcObject = stream;
             } catch {
+                if (!active) return;
                 setStatus('Unable to start camera.');
+            } finally {
+                if (active) {
+                    setIsSwitchingCamera(false);
+                }
             }
         }
         void bootCamera();
-        return () => stream?.getTracks().forEach((track) => track.stop());
-    }, []);
+        return () => {
+            active = false;
+            stream?.getTracks().forEach((track) => track.stop());
+        };
+    }, [cameraFacingMode]);
 
     useEffect(() => {
         return () => {
@@ -182,7 +200,7 @@ export function MultiCameraCapture() {
     }, []);
 
     async function captureFrame() {
-        if (isCapturing || uploading) return;
+        if (isCapturing || uploading || isSwitchingCamera) return;
         if (!videoRef.current || !canvasRef.current) return;
         setIsCapturing(true);
         try {
@@ -208,11 +226,25 @@ export function MultiCameraCapture() {
         }
     }
 
-    const captureButtonLabel = isCapturing
-        ? 'Capturing...'
-        : captureNotice
-          ? 'Captured!'
-          : 'Add Capture';
+    const captureButtonLabel = isSwitchingCamera
+        ? 'Switching...'
+        : isCapturing
+          ? 'Capturing...'
+          : captureNotice
+            ? 'Captured!'
+            : 'Add Capture';
+    const switchCameraButtonLabel = isSwitchingCamera
+        ? 'Switching...'
+        : cameraFacingMode === 'environment'
+          ? 'Front Cam'
+          : 'Back Cam';
+
+    function switchCamera() {
+        if (uploading || isCapturing || isSwitchingCamera) return;
+        setCameraFacingMode((currentMode) =>
+            currentMode === 'environment' ? 'user' : 'environment',
+        );
+    }
 
     async function uploadAll() {
         if (uploading) return;
@@ -306,7 +338,11 @@ export function MultiCameraCapture() {
                             <button
                                 type='button'
                                 onClick={() => void captureFrame()}
-                                disabled={uploading || isCapturing}
+                                disabled={
+                                    uploading ||
+                                    isCapturing ||
+                                    isSwitchingCamera
+                                }
                                 aria-label={captureButtonLabel}
                                 className='group relative grid h-[4.6rem] w-[4.6rem] place-items-center rounded-full border-4 border-white/95 bg-white/15 shadow-[0_16px_30px_-18px_rgba(0,0,0,0.95)] backdrop-blur-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60'
                             >
@@ -321,6 +357,16 @@ export function MultiCameraCapture() {
                                 </span>
                             </button>
                         </div>
+                        <button
+                            type='button'
+                            onClick={switchCamera}
+                            disabled={
+                                uploading || isCapturing || isSwitchingCamera
+                            }
+                            className='absolute right-4 bottom-[calc(env(safe-area-inset-bottom)+1.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm disabled:cursor-not-allowed disabled:opacity-60'
+                        >
+                            {switchCameraButtonLabel}
+                        </button>
                         <p className='absolute left-4 bottom-[calc(env(safe-area-inset-bottom)+1.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white'>
                             Captures:{' '}
                             <span className='font-bold'>{captures.length}</span>
@@ -334,15 +380,29 @@ export function MultiCameraCapture() {
                             {captures.length}
                         </span>
                     </p>
-                    <button
-                        type='button'
-                        onClick={() => void captureFrame()}
-                        disabled={uploading || isCapturing}
-                        className='inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
-                    >
-                        <CaptureIcon className='h-4 w-4' />
-                        <span>{captureButtonLabel}</span>
-                    </button>
+                    <div className='flex items-center gap-2'>
+                        <button
+                            type='button'
+                            onClick={switchCamera}
+                            disabled={
+                                uploading || isCapturing || isSwitchingCamera
+                            }
+                            className='inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
+                        >
+                            {switchCameraButtonLabel}
+                        </button>
+                        <button
+                            type='button'
+                            onClick={() => void captureFrame()}
+                            disabled={
+                                uploading || isCapturing || isSwitchingCamera
+                            }
+                            className='inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
+                        >
+                            <CaptureIcon className='h-4 w-4' />
+                            <span>{captureButtonLabel}</span>
+                        </button>
+                    </div>
                 </div>
             </article>
 

@@ -1,9 +1,14 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { signInWithGoogle, takePendingAuthNotice } from '@/lib/supabase';
+import { useEffect, useState } from 'react';
+import {
+    getSessionUser,
+    signInWithGoogle,
+    takePendingAuthNotice,
+} from '@/lib/supabase';
 
 type LoginStep = 'choose' | 'existing';
 
@@ -17,6 +22,20 @@ export function LoginForm() {
     );
     const [status, setStatus] = useState(initialNotice ?? '');
     const [pending, setPending] = useState(false);
+
+    useEffect(() => {
+        let mounted = true;
+        void getSessionUser()
+            .then((user) => {
+                if (!mounted || !user) return;
+                router.replace('/feed');
+            })
+            .catch(() => undefined);
+
+        return () => {
+            mounted = false;
+        };
+    }, [router]);
 
     async function onGoogleLogin() {
         setPending(true);
@@ -39,10 +58,12 @@ export function LoginForm() {
                 <section className='w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm'>
                     <div className='flex items-center gap-3 mb-4 mx-auto w-fit'>
                         {' '}
-                        <img
+                        <Image
                             src='/spiral.png'
                             alt='spiral logo'
-                            className=' h-16 w-16 mb-2'
+                            width={64}
+                            height={64}
+                            className='mb-2 h-16 w-16'
                         />
                         <h1 className='text-2xl font-bold'>
                             Welcome to KATOL Gallery
@@ -79,10 +100,12 @@ export function LoginForm() {
             <section className='w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm'>
                 <div className='flex items-center gap-3 mb-4 mx-auto w-fit'>
                     {' '}
-                    <img
+                    <Image
                         src='/spiral.png'
                         alt='spiral logo'
-                        className=' h-16 w-16 mb-2'
+                        width={64}
+                        height={64}
+                        className='mb-2 h-16 w-16'
                     />
                     <h1 className='text-2xl font-bold'>Login</h1>
                 </div>

@@ -32,7 +32,8 @@ export default function FeedPage() {
     const postsCountRef = useRef(0);
     const focusedPostIdRef = useRef('');
 
-    const feedVisibility: Visibility = 'campus';
+    const feedVisibility: Visibility =
+        viewerRole === 'visitor' ? 'visitor' : 'campus';
 
     useEffect(() => {
         postsCountRef.current = campusPosts.length;
@@ -129,6 +130,27 @@ export default function FeedPage() {
             unsubscribe();
         };
     }, [loadInitial, profileResolved, refreshLoaded]);
+
+    useEffect(() => {
+        if (!profileResolved) return;
+
+        const handleForegroundRefresh = () => {
+            if (document.visibilityState === 'visible') {
+                void refreshLoaded();
+            }
+        };
+
+        window.addEventListener('focus', handleForegroundRefresh);
+        document.addEventListener('visibilitychange', handleForegroundRefresh);
+
+        return () => {
+            window.removeEventListener('focus', handleForegroundRefresh);
+            document.removeEventListener(
+                'visibilitychange',
+                handleForegroundRefresh,
+            );
+        };
+    }, [profileResolved, refreshLoaded]);
 
     useEffect(() => {
         let mounted = true;

@@ -600,7 +600,7 @@ export default function NotificationsPage() {
                 ) : null}
 
                 {!loading && groupedItems.length > 0 ? (
-                    <section className='w-full space-y-3'>
+                    <section className='w-full space-y-1'>
                         {groupedItems.map((group) => {
                             const unread = group.unread;
                             const clickable = Boolean(group.href);
@@ -625,7 +625,7 @@ export default function NotificationsPage() {
                                                   )
                                             : undefined
                                     }
-                                    className={`w-full border shadow-sm transition ${
+                                    className={`w-full md:rounded-xl border shadow-sm transition ${
                                         unread
                                             ? 'border-cyan-200 bg-cyan-50/70'
                                             : 'border-slate-200 bg-white'
@@ -635,7 +635,7 @@ export default function NotificationsPage() {
                                             : ''
                                     }`}
                                 >
-                                    <CardBody className='min-h-[104px] p-4'>
+                                    <CardBody className='min-h-[104px] p-3'>
                                         <div className='flex h-full items-start gap-3'>
                                             {showActorVisual ? (
                                                 group.isAnonymous ? (
@@ -691,12 +691,12 @@ export default function NotificationsPage() {
                                             )}
 
                                             <div className='min-w-0 flex-1 self-stretch'>
-                                                <div className='h-10 overflow-hidden'>
+                                                <div className='h-10 overflow-hidden '>
                                                     <p className='line-clamp-2 text-sm font-semibold leading-5 text-slate-900 [mask-image:linear-gradient(180deg,#000_72%,transparent)] [-webkit-mask-image:linear-gradient(180deg,#000_72%,transparent)]'>
                                                         {message}
                                                     </p>
                                                 </div>
-                                                <p className='mt-2 text-xs text-slate-500'>
+                                                <p className='lg:-mt-5 text-xs text-slate-500'>
                                                     {relativeLabel}
                                                 </p>
                                             </div>
@@ -717,24 +717,25 @@ export default function NotificationsPage() {
                                                     />
                                                 )}
                                                 {/* {unread ? (
-                                                <button
-                                                    type='button'
-                                                    onClick={(event) => {
-                                                        event.stopPropagation();
-                                                        void onMarkGroupRead(
-                                                            group,
-                                                        );
-                                                    }}
-                                                    disabled={
-                                                        busyKey === group.key
-                                                    }
-                                                    className='rounded-lg bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
-                                                >
-                                                    {busyKey === group.key
-                                                        ? 'Saving...'
-                                                        : 'Mark Read'}
-                                                </button>
-                                            ) : null} */}
+                                                    <button
+                                                        type='button'
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            void onMarkGroupRead(
+                                                                group,
+                                                            );
+                                                        }}
+                                                        disabled={
+                                                            busyKey ===
+                                                            group.key
+                                                        }
+                                                        className='rounded-lg bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                                                    >
+                                                        {busyKey === group.key
+                                                            ? 'Saving...'
+                                                            : 'Mark Read'}
+                                                    </button>
+                                                ) : null} */}
                                             </div>
                                         </div>
                                     </CardBody>

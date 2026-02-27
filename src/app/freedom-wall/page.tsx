@@ -1219,7 +1219,7 @@ export default function FreedomWallPage() {
                             layout: { duration: 0.22, ease: 'easeOut' },
                         }}
                     >
-                        <Card className='mb-5 border border-slate-200 bg-white shadow-sm rounded-2xl'>
+                        <Card className='mb-5 border border-slate-200 bg-white shadow-sm md:rounded-2xl'>
                             <CardBody className='space-y-4 p-5'>
                                 <Textarea
                                     value={content}
@@ -1570,7 +1570,9 @@ export default function FreedomWallPage() {
                                                     {showExpandedCommentControls ? (
                                                         <div className='flex flex-wrap items-center justify-end gap-2'>
                                                             <label className='inline-flex items-center gap-2 text-[11px] font-semibold text-slate-600'>
-                                                                <span>Sort</span>
+                                                                <span>
+                                                                    Sort
+                                                                </span>
                                                                 <select
                                                                     value={
                                                                         sortOrder
@@ -1597,7 +1599,8 @@ export default function FreedomWallPage() {
                                                                         added
                                                                     </option>
                                                                     <option value='oldest'>
-                                                                        Oldest first
+                                                                        Oldest
+                                                                        first
                                                                     </option>
                                                                 </select>
                                                             </label>

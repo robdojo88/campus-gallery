@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     captureFrameAsDataUrl,
     getHighResolutionStream,
+    type CameraFacingMode,
 } from '@/lib/camera-capture';
 import { getErrorMessage } from '@/lib/error-message';
 import {
@@ -71,6 +72,9 @@ export function SingleCameraCapture() {
     const [captureNotice, setCaptureNotice] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [pendingQueueCount, setPendingQueueCount] = useState(0);
+    const [cameraFacingMode, setCameraFacingMode] =
+        useState<CameraFacingMode>('environment');
+    const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
 
     useEffect(() => {
         const setNetwork = () => setOnline(navigator.onLine);
@@ -177,21 +181,33 @@ export function SingleCameraCapture() {
 
     useEffect(() => {
         let stream: MediaStream | null = null;
+        let active = true;
         async function bootCamera() {
+            setIsSwitchingCamera(true);
             try {
-                stream = await getHighResolutionStream();
+                stream = await getHighResolutionStream(cameraFacingMode);
+                if (!active) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
                 }
             } catch {
+                if (!active) return;
                 setStatus('Camera permission denied or unavailable.');
+            } finally {
+                if (active) {
+                    setIsSwitchingCamera(false);
+                }
             }
         }
         void bootCamera();
         return () => {
+            active = false;
             stream?.getTracks().forEach((track) => track.stop());
         };
-    }, []);
+    }, [cameraFacingMode]);
 
     useEffect(() => {
         return () => {
@@ -208,14 +224,28 @@ export function SingleCameraCapture() {
                 : 'bg-red-100 text-red-700',
         [online],
     );
-    const captureButtonLabel = isCapturing
-        ? 'Capturing...'
-        : captureNotice
-          ? 'Captured!'
-          : 'Capture';
+    const captureButtonLabel = isSwitchingCamera
+        ? 'Switching...'
+        : isCapturing
+          ? 'Capturing...'
+          : captureNotice
+            ? 'Captured!'
+            : 'Capture';
+    const switchCameraButtonLabel = isSwitchingCamera
+        ? 'Switching...'
+        : cameraFacingMode === 'environment'
+          ? 'Front Cam'
+          : 'Back Cam';
+
+    function switchCamera() {
+        if (isCapturing || isSubmitting || isSwitchingCamera) return;
+        setCameraFacingMode((currentMode) =>
+            currentMode === 'environment' ? 'user' : 'environment',
+        );
+    }
 
     async function capture() {
-        if (isCapturing || isSubmitting) return;
+        if (isCapturing || isSubmitting || isSwitchingCamera) return;
         if (!videoRef.current || !canvasRef.current) return;
         setIsCapturing(true);
         try {
@@ -353,7 +383,11 @@ export function SingleCameraCapture() {
                             <button
                                 type='button'
                                 onClick={() => void capture()}
-                                disabled={isSubmitting || isCapturing}
+                                disabled={
+                                    isSubmitting ||
+                                    isCapturing ||
+                                    isSwitchingCamera
+                                }
                                 aria-label={captureButtonLabel}
                                 className='group relative grid h-[4.6rem] w-[4.6rem] place-items-center rounded-full border-4 border-white/95 bg-white/15 shadow-[0_16px_30px_-18px_rgba(0,0,0,0.95)] backdrop-blur-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60'
                             >
@@ -368,6 +402,18 @@ export function SingleCameraCapture() {
                                 </span>
                             </button>
                         </div>
+                        <button
+                            type='button'
+                            onClick={switchCamera}
+                            disabled={
+                                isSubmitting ||
+                                isCapturing ||
+                                isSwitchingCamera
+                            }
+                            className='absolute right-4 bottom-[calc(env(safe-area-inset-bottom)+4.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm disabled:cursor-not-allowed disabled:opacity-60'
+                        >
+                            {switchCameraButtonLabel}
+                        </button>
                         <p className='absolute left-4 bottom-[calc(env(safe-area-inset-bottom)+7.35rem)] rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white'>
                             Captured: {captures.length}
                         </p>
@@ -392,8 +438,24 @@ export function SingleCameraCapture() {
                         </p>
                         <button
                             type='button'
+                            onClick={switchCamera}
+                            disabled={
+                                isSubmitting ||
+                                isCapturing ||
+                                isSwitchingCamera
+                            }
+                            className='inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
+                        >
+                            {switchCameraButtonLabel}
+                        </button>
+                        <button
+                            type='button'
                             onClick={() => void capture()}
-                            disabled={isSubmitting || isCapturing}
+                            disabled={
+                                isSubmitting ||
+                                isCapturing ||
+                                isSwitchingCamera
+                            }
                             className='inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60'
                         >
                             <CaptureIcon className='h-4 w-4' />
