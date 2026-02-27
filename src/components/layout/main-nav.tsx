@@ -359,9 +359,7 @@ function resolveInitialThemeMode(): ThemeMode {
     if (typeof window === 'undefined') return 'light';
     const cached = window.localStorage.getItem(THEME_CACHE_KEY);
     if (cached === 'dark' || cached === 'light') return cached;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light';
+    return 'light';
 }
 
 function applyBodyTheme(mode: ThemeMode): void {
